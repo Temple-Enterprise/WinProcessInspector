@@ -47,6 +47,7 @@ private:
 	using DevicePtr = std::unique_ptr<ID3D11Device, ComDeleter>;
 	using ContextPtr = std::unique_ptr<ID3D11DeviceContext, ComDeleter>;
 	using SwapChainPtr = std::unique_ptr<IDXGISwapChain, ComDeleter>;
+	using RenderTargetPtr = std::unique_ptr<ID3D11RenderTargetView, ComDeleter>;
 	
 	HWND m_hWnd;
 	DevicePtr m_Device;
