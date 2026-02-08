@@ -10,6 +10,7 @@ namespace Core {
 
 	struct ProcessInfo {
 		DWORD ProcessId;
+		DWORD ParentProcessId;
 		std::string ProcessName;
 		std::string Architecture;
 	};

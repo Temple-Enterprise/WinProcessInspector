@@ -5,9 +5,6 @@
 #include "external/imgui/imgui.h"
 #include "external/imgui/backends/imgui_impl_win32.h"
 #include "external/imgui/backends/imgui_impl_dx11.h"
-#include <d3d11.h>
-#include <dxgi.h>
-#include <d3dcompiler.h>
 #include <shellapi.h>
 #include <psapi.h>
 #include <sstream>
@@ -15,8 +12,6 @@
 #include <fstream>
 #include "../../resource.h"
 
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "psapi.lib")
 
@@ -26,16 +21,12 @@ using namespace RuntimeInspector::Injection;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static ID3D11Device* g_pd3dDevice = nullptr;
-static ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
-static IDXGISwapChain* g_pSwapChain = nullptr;
-static ID3D11RenderTargetView* g_mainRenderTargetView = nullptr;
-
 MainWindow::MainWindow(HINSTANCE hInstance)
 	: m_hWnd(nullptr)
 	, m_hInstance(hInstance)
 	, m_bRunning(true)
 	, m_pImGuiContext(nullptr)
+	, m_Renderer(std::make_unique<DirectXRenderer>())
 	, m_SelectedProcessIndex(-1)
 	, m_SelectedInjectionMethod(0)
 	, m_AutoRefresh(false)
@@ -52,6 +43,8 @@ MainWindow::MainWindow(HINSTANCE hInstance)
 	m_SearchStringBuffer[0] = '\0';
 	m_StatusMessage = "Ready";
 	memset(&m_CurrentProcessDetails, 0, sizeof(m_CurrentProcessDetails));
+	
+	Logger::GetInstance().LogInfo("Runtime Inspector initialized");
 }
 
 MainWindow::~MainWindow() {
@@ -60,18 +53,22 @@ MainWindow::~MainWindow() {
 
 bool MainWindow::Initialize() {
 	if (!CreateMainWindow()) {
+		Logger::GetInstance().LogError("Failed to create main window");
 		return false;
 	}
 
-	if (!InitializeDirectX()) {
+	if (!m_Renderer->Initialize(m_hWnd)) {
+		Logger::GetInstance().LogError("Failed to initialize DirectX renderer");
 		return false;
 	}
 
 	if (!InitializeImGui()) {
+		Logger::GetInstance().LogError("Failed to initialize ImGui");
 		return false;
 	}
 
 	RefreshProcessList();
+	Logger::GetInstance().LogInfo("Application initialized successfully");
 	return true;
 }
 
@@ -133,44 +130,6 @@ bool MainWindow::CreateMainWindow() {
 	return true;
 }
 
-bool MainWindow::InitializeDirectX() {
-	DXGI_SWAP_CHAIN_DESC sd = {};
-	sd.BufferCount = 2;
-	sd.BufferDesc.Width = 0;
-	sd.BufferDesc.Height = 0;
-	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 60;
-	sd.BufferDesc.RefreshRate.Denominator = 1;
-	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	sd.OutputWindow = m_hWnd;
-	sd.SampleDesc.Count = 1;
-	sd.SampleDesc.Quality = 0;
-	sd.Windowed = TRUE;
-	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-	UINT createDeviceFlags = 0;
-	D3D_FEATURE_LEVEL featureLevel;
-	const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
-	if (D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK) {
-		return false;
-	}
-
-	CreateRenderTarget();
-	return true;
-}
-
-void MainWindow::CreateRenderTarget() {
-	ID3D11Texture2D* pBackBuffer = nullptr;
-	if (SUCCEEDED(g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer))) && pBackBuffer) {
-		g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_mainRenderTargetView);
-		pBackBuffer->Release();
-	}
-}
-
-void MainWindow::CleanupRenderTarget() {
-	if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = nullptr; }
-}
 
 bool MainWindow::InitializeImGui() {
 	IMGUI_CHECKVERSION();
@@ -183,18 +142,18 @@ bool MainWindow::InitializeImGui() {
 		char fontPath[MAX_PATH];
 		sprintf_s(fontPath, "%s\\Fonts\\segoeui.ttf", windowsPath);
 		if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES) {
-			io.Fonts->AddFontFromFileTTF(fontPath, 18.0f);
+			io.Fonts->AddFontFromFileTTF(fontPath, Config::UI_FONT_SIZE);
 		}
 		sprintf_s(fontPath, "%s\\Fonts\\segoeuib.ttf", windowsPath);
 		if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES) {
-			io.Fonts->AddFontFromFileTTF(fontPath, 18.0f);
+			io.Fonts->AddFontFromFileTTF(fontPath, Config::UI_TITLE_FONT_SIZE);
 		}
 	}
 
 	ImGuiStyle& style = ImGui::GetStyle();
-	style.WindowPadding = ImVec2(12, 8);
-	style.FramePadding = ImVec2(10, 6);
-	style.ItemSpacing = ImVec2(8, 6);
+	style.WindowPadding = ImVec2(Config::UI_WINDOW_PADDING_X, Config::UI_WINDOW_PADDING_Y);
+	style.FramePadding = ImVec2(Config::UI_FRAME_PADDING_X, Config::UI_FRAME_PADDING_Y);
+	style.ItemSpacing = ImVec2(Config::UI_ITEM_SPACING_X, Config::UI_ITEM_SPACING_Y);
 	style.ItemInnerSpacing = ImVec2(6, 4);
 	style.WindowRounding = 0.0f;
 	style.FrameRounding = 0.0f;
@@ -211,9 +170,9 @@ bool MainWindow::InitializeImGui() {
 	style.ChildBorderSize = 1.0f;
 
 	ImVec4* colors = style.Colors;
-	colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
+	colors[ImGuiCol_Text] = ImVec4(Config::UI_COLOR_TEXT_R, Config::UI_COLOR_TEXT_G, Config::UI_COLOR_TEXT_B, 1.00f);
 	colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-	colors[ImGuiCol_WindowBg] = ImVec4(0.11f, 0.11f, 0.13f, 1.00f);
+	colors[ImGuiCol_WindowBg] = ImVec4(Config::UI_COLOR_WINDOW_BG_R, Config::UI_COLOR_WINDOW_BG_G, Config::UI_COLOR_WINDOW_BG_B, 1.00f);
 	colors[ImGuiCol_ChildBg] = ImVec4(0.09f, 0.09f, 0.11f, 1.00f);
 	colors[ImGuiCol_PopupBg] = ImVec4(0.15f, 0.15f, 0.18f, 0.95f);
 	colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.30f, 1.00f);
@@ -227,19 +186,19 @@ bool MainWindow::InitializeImGui() {
 	colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.35f, 0.35f, 0.40f, 1.00f);
 	colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.45f, 0.45f, 0.50f, 1.00f);
 	colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.55f, 0.55f, 0.60f, 1.00f);
-	colors[ImGuiCol_CheckMark] = ImVec4(0.40f, 0.70f, 1.00f, 1.00f);
-	colors[ImGuiCol_SliderGrab] = ImVec4(0.40f, 0.70f, 1.00f, 1.00f);
+	colors[ImGuiCol_CheckMark] = ImVec4(Config::UI_COLOR_ACCENT_R, Config::UI_COLOR_ACCENT_G, Config::UI_COLOR_ACCENT_B, 1.00f);
+	colors[ImGuiCol_SliderGrab] = ImVec4(Config::UI_COLOR_ACCENT_R, Config::UI_COLOR_ACCENT_G, Config::UI_COLOR_ACCENT_B, 1.00f);
 	colors[ImGuiCol_SliderGrabActive] = ImVec4(0.50f, 0.75f, 1.00f, 1.00f);
 	colors[ImGuiCol_Button] = ImVec4(0.22f, 0.22f, 0.27f, 1.00f);
 	colors[ImGuiCol_ButtonHovered] = ImVec4(0.32f, 0.32f, 0.38f, 1.00f);
-	colors[ImGuiCol_ButtonActive] = ImVec4(0.40f, 0.70f, 1.00f, 1.00f);
+	colors[ImGuiCol_ButtonActive] = ImVec4(Config::UI_COLOR_ACCENT_R, Config::UI_COLOR_ACCENT_G, Config::UI_COLOR_ACCENT_B, 1.00f);
 	colors[ImGuiCol_Header] = ImVec4(0.22f, 0.22f, 0.27f, 1.00f);
 	colors[ImGuiCol_HeaderHovered] = ImVec4(0.32f, 0.32f, 0.38f, 1.00f);
-	colors[ImGuiCol_HeaderActive] = ImVec4(0.40f, 0.70f, 1.00f, 1.00f);
+	colors[ImGuiCol_HeaderActive] = ImVec4(Config::UI_COLOR_ACCENT_R, Config::UI_COLOR_ACCENT_G, Config::UI_COLOR_ACCENT_B, 1.00f);
 	colors[ImGuiCol_Separator] = ImVec4(0.25f, 0.25f, 0.30f, 1.00f);
 	colors[ImGuiCol_ResizeGrip] = ImVec4(0.22f, 0.22f, 0.27f, 1.00f);
 	colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.32f, 0.32f, 0.38f, 1.00f);
-	colors[ImGuiCol_ResizeGripActive] = ImVec4(0.40f, 0.70f, 1.00f, 1.00f);
+	colors[ImGuiCol_ResizeGripActive] = ImVec4(Config::UI_COLOR_ACCENT_R, Config::UI_COLOR_ACCENT_G, Config::UI_COLOR_ACCENT_B, 1.00f);
 	colors[ImGuiCol_Tab] = ImVec4(0.16f, 0.16f, 0.19f, 1.00f);
 	colors[ImGuiCol_TabHovered] = ImVec4(0.26f, 0.26f, 0.31f, 1.00f);
 	colors[ImGuiCol_TabActive] = ImVec4(0.22f, 0.22f, 0.27f, 1.00f);
@@ -248,11 +207,11 @@ bool MainWindow::InitializeImGui() {
 	colors[ImGuiCol_TableBorderLight] = ImVec4(0.18f, 0.18f, 0.21f, 1.00f);
 	colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 	colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.09f, 0.09f, 0.11f, 0.50f);
-	colors[ImGuiCol_TextSelectedBg] = ImVec4(0.40f, 0.70f, 1.00f, 0.35f);
-	colors[ImGuiCol_NavHighlight] = ImVec4(0.40f, 0.70f, 1.00f, 1.00f);
+	colors[ImGuiCol_TextSelectedBg] = ImVec4(Config::UI_COLOR_ACCENT_R, Config::UI_COLOR_ACCENT_G, Config::UI_COLOR_ACCENT_B, 0.35f);
+	colors[ImGuiCol_NavHighlight] = ImVec4(Config::UI_COLOR_ACCENT_R, Config::UI_COLOR_ACCENT_G, Config::UI_COLOR_ACCENT_B, 1.00f);
 
 	ImGui_ImplWin32_Init(m_hWnd);
-	ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+	ImGui_ImplDX11_Init(m_Renderer->GetDevice(), m_Renderer->GetContext());
 	return true;
 }
 
@@ -288,11 +247,11 @@ int MainWindow::Run() {
 		ImGui::Render();
 		ImVec4 bgColor = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
 		const float clear_color[4] = { bgColor.x, bgColor.y, bgColor.z, bgColor.w };
-		g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
-		g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color);
+		
+		m_Renderer->BeginFrame();
+		m_Renderer->ClearRenderTarget(clear_color);
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
-		g_pSwapChain->Present(1, 0);
+		m_Renderer->EndFrame();
 	}
 
 	Cleanup();
@@ -318,7 +277,7 @@ void MainWindow::RenderUI() {
 		ImGui::EndMenuBar();
 	}
 
-	float leftPanelWidth = ImGui::GetContentRegionAvail().x * 0.35f;
+	float leftPanelWidth = ImGui::GetContentRegionAvail().x * Config::UI_PANEL_SPLIT_RATIO;
 	ImGui::BeginChild("ProcessList", ImVec2(leftPanelWidth, 0), true);
 	RenderProcessList();
 	ImGui::EndChild();
@@ -386,7 +345,7 @@ void MainWindow::RenderProcessList() {
 	ImGui::Text("Processes");
 	ImGui::PopFont();
 	
-	float buttonWidth = 80.0f;
+	float buttonWidth = Config::UI_BUTTON_WIDTH;
 	float spacing = ImGui::GetStyle().ItemSpacing.x;
 	float availableWidth = ImGui::GetContentRegionAvail().x;
 	ImGui::SameLine(availableWidth - (buttonWidth * 2 + spacing));
@@ -447,18 +406,14 @@ void MainWindow::RenderProcessList() {
 				texId = it->second;
 			}
 			else {
-				HICON hIcon = GetProcessIcon(proc.ProcessId);
-				if (hIcon) {
-					texId = IconToTexture(hIcon);
-					if (texId) {
-						m_IconCache[proc.ProcessId] = texId;
-					}
-					DestroyIcon(hIcon);
+				texId = GetProcessIconTexture(proc.ProcessId);
+				if (texId) {
+					m_IconCache[proc.ProcessId] = texId;
 				}
 			}
 			
 			if (texId) {
-				ImGui::Image((ImTextureID)texId, ImVec2(16, 16));
+				ImGui::Image((ImTextureID)texId, ImVec2(Config::PROCESS_ICON_SIZE, Config::PROCESS_ICON_SIZE));
 			}
 			else {
 				ImGui::Text(" ");
@@ -573,14 +528,15 @@ void MainWindow::RenderStatusBar() {
 	ImGui::SameLine();
 	ImGui::Text("%s", m_StatusMessage.c_str());
 	
-	if (!m_LogMessages.empty()) {
+	const auto& logMessages = Logger::GetInstance().GetMessages();
+	if (!logMessages.empty()) {
 		ImGui::Spacing();
 		ImGui::PushFont(ImGui::GetIO().Fonts->Fonts.Size > 1 ? ImGui::GetIO().Fonts->Fonts[1] : nullptr);
 		ImGui::Text("Activity Log");
 		ImGui::PopFont();
 		ImGui::BeginChild("Log", ImVec2(0, 160), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 3));
-		for (const auto& msg : m_LogMessages) {
+		for (const auto& msg : logMessages) {
 			ImGui::TextWrapped("%s", msg.c_str());
 		}
 		ImGui::PopStyleVar();
@@ -620,14 +576,15 @@ void MainWindow::RenderProcessDetails() {
 	ImGui::Separator();
 	ImGui::Spacing();
 
-	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-	if (!hProcess) {
+	HandleWrapper hProcess(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid));
+	if (!hProcess.IsValid()) {
 		ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Failed to open process (Access Denied)");
+		Logger::GetInstance().LogWarning("Failed to open process PID " + std::to_string(pid) + " (Access Denied)");
 		return;
 	}
 
 	PROCESS_MEMORY_COUNTERS_EX pmc = {};
-	if (GetProcessMemoryInfo(hProcess, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
+	if (GetProcessMemoryInfo(hProcess.Get(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
 		ImGui::Text("Memory Information:");
 		ImGui::BulletText("Working Set: %.2f MB", pmc.WorkingSetSize / (1024.0 * 1024.0));
 		ImGui::BulletText("Peak Working Set: %.2f MB", pmc.PeakWorkingSetSize / (1024.0 * 1024.0));
@@ -637,7 +594,7 @@ void MainWindow::RenderProcessDetails() {
 	}
 
 	FILETIME creationTime, exitTime, kernelTime, userTime;
-	if (GetProcessTimes(hProcess, &creationTime, &exitTime, &kernelTime, &userTime)) {
+	if (GetProcessTimes(hProcess.Get(), &creationTime, &exitTime, &kernelTime, &userTime)) {
 		ImGui::Spacing();
 		ImGui::PushFont(ImGui::GetIO().Fonts->Fonts.Size > 1 ? ImGui::GetIO().Fonts->Fonts[1] : nullptr);
 		ImGui::Text("Process Times");
@@ -660,7 +617,7 @@ void MainWindow::RenderProcessDetails() {
 	}
 
 	char exePath[MAX_PATH] = { 0 };
-	if (GetModuleFileNameExA(hProcess, nullptr, exePath, MAX_PATH)) {
+	if (GetModuleFileNameExA(hProcess.Get(), nullptr, exePath, MAX_PATH)) {
 		ImGui::Spacing();
 		ImGui::PushFont(ImGui::GetIO().Fonts->Fonts.Size > 1 ? ImGui::GetIO().Fonts->Fonts[1] : nullptr);
 		ImGui::Text("Executable Path");
@@ -867,11 +824,8 @@ void MainWindow::RefreshProcessList() {
 	
 	for (auto& pair : m_IconCache) {
 		if (newCache.find(pair.first) == newCache.end()) {
-			if (pair.second) {
-				ID3D11ShaderResourceView* pSRV = (ID3D11ShaderResourceView*)pair.second;
-				if (pSRV) {
-					pSRV->Release();
-				}
+			if (pair.second && m_Renderer) {
+				m_Renderer->ReleaseTexture(pair.second);
 			}
 		}
 	}
@@ -926,58 +880,54 @@ void MainWindow::PerformInjection() {
 	}
 
 	DWORD pid = m_Processes[m_SelectedProcessIndex].ProcessId;
-	HANDLE hProcess = OpenTargetProcess(pid);
-	if (!hProcess) {
+	HandleWrapper hProcess(OpenTargetProcess(pid));
+	if (!hProcess.IsValid()) {
 		m_StatusMessage = "Error: Failed to open target process";
+		Logger::GetInstance().LogError("Failed to open target process PID " + std::to_string(pid));
 		return;
 	}
 
 	bool success = false;
 	switch (m_SelectedInjectionMethod) {
 		case 0:
-			success = InjectViaCreateRemoteThread(m_DllPath.c_str(), hProcess);
+			success = InjectViaCreateRemoteThread(m_DllPath.c_str(), hProcess.Get());
 			break;
 		case 1:
-			success = InjectViaNtCreateThreadEx(m_DllPath.c_str(), hProcess);
+			success = InjectViaNtCreateThreadEx(m_DllPath.c_str(), hProcess.Get());
 			break;
 		case 2:
-			success = InjectViaQueueUserAPC(m_DllPath.c_str(), hProcess, pid);
+			success = InjectViaQueueUserAPC(m_DllPath.c_str(), hProcess.Get(), pid);
 			break;
 		case 3:
 			success = InjectViaSetWindowsHookEx(pid, m_DllPath.c_str());
 			break;
 		case 4:
-			success = InjectViaRtlCreateUserThread(hProcess, m_DllPath.c_str());
+			success = InjectViaRtlCreateUserThread(hProcess.Get(), m_DllPath.c_str());
 			break;
 	}
 
-	CloseHandle(hProcess);
-
 	if (success) {
 		m_StatusMessage = "Injection successful!";
-		m_LogMessages.push_back("Successfully injected " + m_DllPath + " into PID " + std::to_string(pid));
+		Logger::GetInstance().LogInfo("Successfully injected " + m_DllPath + " into PID " + std::to_string(pid));
 	}
 	else {
 		m_StatusMessage = "Injection failed!";
-		m_LogMessages.push_back("Failed to inject " + m_DllPath + " into PID " + std::to_string(pid));
+		Logger::GetInstance().LogError("Failed to inject " + m_DllPath + " into PID " + std::to_string(pid));
 	}
 }
 
 void MainWindow::Cleanup() {
 	for (auto& pair : m_IconCache) {
-		if (pair.second) {
-			ID3D11ShaderResourceView* pSRV = (ID3D11ShaderResourceView*)pair.second;
-			if (pSRV) {
-				pSRV->Release();
-			}
+		if (pair.second && m_Renderer) {
+			m_Renderer->ReleaseTexture(pair.second);
 		}
 	}
 	m_IconCache.clear();
 	
-	CleanupRenderTarget();
-	if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = nullptr; }
-	if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = nullptr; }
-	if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = nullptr; }
+	if (m_Renderer) {
+		m_Renderer->Shutdown();
+		m_Renderer.reset();
+	}
 
 	ShutdownImGui();
 
@@ -1036,10 +986,8 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			return 0;
 		}
 		case WM_SIZE:
-			if (g_pSwapChain && wParam != SIZE_MINIMIZED) {
-				CleanupRenderTarget();
-				g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
-				CreateRenderTarget();
+			if (m_Renderer && wParam != SIZE_MINIMIZED) {
+				m_Renderer->Resize((UINT)LOWORD(lParam), (UINT)HIWORD(lParam));
 			}
 			return 0;
 		case WM_SYSCOMMAND:
@@ -1060,7 +1008,7 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			if (hit == HTCLIENT) {
 				POINT pt = { LOWORD(lParam), HIWORD(lParam) };
 				ScreenToClient(m_hWnd, &pt);
-				if (pt.y >= 0 && pt.y < 25) {
+				if (pt.y >= 0 && pt.y < Config::TITLE_BAR_HEIGHT) {
 					return HTCAPTION;
 				}
 			}
@@ -1069,142 +1017,49 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	return DefWindowProc(m_hWnd, uMsg, wParam, lParam);
 }
 
-HICON MainWindow::GetProcessIcon(DWORD processId) {
-	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
-	if (!hProcess) {
-		return nullptr;
+RuntimeInspector::Core::IconWrapper MainWindow::GetProcessIcon(DWORD processId) {
+	HandleWrapper hProcess(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId));
+	if (!hProcess.IsValid()) {
+		return RuntimeInspector::Core::IconWrapper();
 	}
 
 	char exePath[MAX_PATH] = { 0 };
-	if (GetModuleFileNameExA(hProcess, nullptr, exePath, MAX_PATH) == 0) {
-		CloseHandle(hProcess);
-		return nullptr;
+	if (GetModuleFileNameExA(hProcess.Get(), nullptr, exePath, MAX_PATH) == 0) {
+		return RuntimeInspector::Core::IconWrapper();
 	}
-
-	CloseHandle(hProcess);
 
 	SHFILEINFOA sfi = { 0 };
 	SHGetFileInfoA(exePath, 0, &sfi, sizeof(sfi), SHGFI_ICON | SHGFI_SMALLICON);
-	return sfi.hIcon;
+	return RuntimeInspector::Core::IconWrapper(sfi.hIcon);
 }
 
-void* MainWindow::IconToTexture(HICON hIcon) {
-	if (!hIcon || !g_pd3dDevice) {
+void* MainWindow::GetProcessIconTexture(DWORD processId) {
+	if (!m_Renderer) {
 		return nullptr;
 	}
-
-	ICONINFO iconInfo = { 0 };
-	if (!GetIconInfo(hIcon, &iconInfo)) {
+	
+	RuntimeInspector::Core::IconWrapper icon = GetProcessIcon(processId);
+	if (!icon.IsValid()) {
 		return nullptr;
 	}
-
-	BITMAP bmp = { 0 };
-	if (!GetObject(iconInfo.hbmColor, sizeof(BITMAP), &bmp)) {
-		if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-		if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
-		return nullptr;
-	}
-
-	int width = bmp.bmWidth;
-	int height = bmp.bmHeight;
-
-	HDC hDC = CreateCompatibleDC(nullptr);
-	BITMAPINFO bmi = { 0 };
-	bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-	bmi.bmiHeader.biWidth = width;
-	bmi.bmiHeader.biHeight = -height;
-	bmi.bmiHeader.biPlanes = 1;
-	bmi.bmiHeader.biBitCount = 32;
-	bmi.bmiHeader.biCompression = BI_RGB;
-
-	unsigned int* pixels = nullptr;
-	HBITMAP hBitmap = CreateDIBSection(hDC, &bmi, DIB_RGB_COLORS, (void**)&pixels, nullptr, 0);
-	if (!hBitmap) {
-		DeleteDC(hDC);
-		if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-		if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
-		return nullptr;
-	}
-
-	memset(pixels, 0, width * height * 4);
-
-	HBITMAP hOldBitmap = (HBITMAP)SelectObject(hDC, hBitmap);
-	DrawIconEx(hDC, 0, 0, hIcon, width, height, 0, nullptr, DI_NORMAL);
-	SelectObject(hDC, hOldBitmap);
-	DeleteDC(hDC);
-
-	unsigned int* rgbaPixels = new unsigned int[width * height];
-	for (int i = 0; i < width * height; i++) {
-		unsigned int pixel = pixels[i];
-		unsigned char b = (pixel >> 0) & 0xFF;
-		unsigned char g = (pixel >> 8) & 0xFF;
-		unsigned char r = (pixel >> 16) & 0xFF;
-		unsigned char a = (pixel >> 24) & 0xFF;
-		rgbaPixels[i] = (a << 24) | (b << 16) | (g << 8) | r;
-	}
-	DeleteObject(hBitmap);
-
-	D3D11_TEXTURE2D_DESC desc = { 0 };
-	desc.Width = width;
-	desc.Height = height;
-	desc.MipLevels = 1;
-	desc.ArraySize = 1;
-	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	desc.SampleDesc.Count = 1;
-	desc.Usage = D3D11_USAGE_DEFAULT;
-	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	desc.CPUAccessFlags = 0;
-
-	D3D11_SUBRESOURCE_DATA subResource = { 0 };
-	subResource.pSysMem = rgbaPixels;
-	subResource.SysMemPitch = width * 4;
-	subResource.SysMemSlicePitch = 0;
-
-	ID3D11Texture2D* pTexture = nullptr;
-	if (FAILED(g_pd3dDevice->CreateTexture2D(&desc, &subResource, &pTexture))) {
-		delete[] rgbaPixels;
-		if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-		if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
-		return nullptr;
-	}
-	delete[] rgbaPixels;
-
-	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = { 0 };
-	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MipLevels = 1;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-
-	ID3D11ShaderResourceView* pSRV = nullptr;
-	if (FAILED(g_pd3dDevice->CreateShaderResourceView(pTexture, &srvDesc, &pSRV))) {
-		pTexture->Release();
-		if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-		if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
-		return nullptr;
-	}
-
-	pTexture->Release();
-	if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
-	if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
-
-	return (void*)pSRV;
+	
+	return m_Renderer->CreateTextureFromIcon(icon.Get());
 }
 
 void MainWindow::OpenProcessFileLocation(DWORD processId) {
-	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
-	if (!hProcess) {
+	HandleWrapper hProcess(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId));
+	if (!hProcess.IsValid()) {
 		m_StatusMessage = "Failed to open process";
+		Logger::GetInstance().LogError("Failed to open process PID " + std::to_string(processId) + " for file location");
 		return;
 	}
 
 	char exePath[MAX_PATH] = { 0 };
-	if (GetModuleFileNameExA(hProcess, nullptr, exePath, MAX_PATH) == 0) {
-		CloseHandle(hProcess);
+	if (GetModuleFileNameExA(hProcess.Get(), nullptr, exePath, MAX_PATH) == 0) {
 		m_StatusMessage = "Failed to get process path";
+		Logger::GetInstance().LogError("Failed to get module filename for process PID " + std::to_string(processId));
 		return;
 	}
-
-	CloseHandle(hProcess);
 
 	char* lastSlash = strrchr(exePath, '\\');
 	if (lastSlash) {
@@ -1240,22 +1095,22 @@ void MainWindow::CopyProcessId(DWORD processId) {
 }
 
 void MainWindow::TerminateProcess(DWORD processId) {
-	HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, processId);
-	if (!hProcess) {
+	HandleWrapper hProcess(OpenProcess(PROCESS_TERMINATE, FALSE, processId));
+	if (!hProcess.IsValid()) {
 		m_StatusMessage = "Failed to open process for termination";
+		Logger::GetInstance().LogError("Failed to open process PID " + std::to_string(processId) + " for termination");
 		return;
 	}
 
-	if (::TerminateProcess(hProcess, 0)) {
+	if (::TerminateProcess(hProcess.Get(), 0)) {
 		m_StatusMessage = "Process terminated";
-		m_LogMessages.push_back("Terminated process PID " + std::to_string(processId));
+		Logger::GetInstance().LogWarning("Terminated process PID " + std::to_string(processId));
 		RefreshProcessList();
 	}
 	else {
 		m_StatusMessage = "Failed to terminate process";
+		Logger::GetInstance().LogError("Failed to terminate process PID " + std::to_string(processId));
 	}
-
-	CloseHandle(hProcess);
 }
 
 void MainWindow::CopyProcessName(const std::string& processName) {
@@ -1336,10 +1191,10 @@ void MainWindow::RenderProcessPropertiesWindow() {
 		ImGui::SameLine(150);
 		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.9f, 1.0f));
 		std::string arch = "?";
-		HANDLE hProcessArch = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, m_CurrentProcessDetails.ProcessId);
-		if (hProcessArch) {
+		HandleWrapper hProcessArch(OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, m_CurrentProcessDetails.ProcessId));
+		if (hProcessArch.IsValid()) {
 			BOOL isWow64 = FALSE;
-			if (IsWow64Process(hProcessArch, &isWow64)) {
+			if (IsWow64Process(hProcessArch.Get(), &isWow64)) {
 				SYSTEM_INFO si = {};
 				GetNativeSystemInfo(&si);
 				if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 || si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64) {
@@ -1352,13 +1207,12 @@ void MainWindow::RenderProcessPropertiesWindow() {
 					arch = "x86";
 				}
 			}
-			CloseHandle(hProcessArch);
 		}
 		ImGui::Text("%s", arch.c_str());
 		ImGui::PopStyleColor();
 
-		HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, m_CurrentProcessDetails.ProcessId);
-		if (hProcess) {
+		HandleWrapper hProcess(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, m_CurrentProcessDetails.ProcessId));
+		if (hProcess.IsValid()) {
 			ImGui::Spacing();
 			ImGui::Separator();
 			ImGui::Spacing();
@@ -1369,7 +1223,7 @@ void MainWindow::RenderProcessPropertiesWindow() {
 			ImGui::Spacing();
 
 			PROCESS_MEMORY_COUNTERS_EX pmc = {};
-			if (GetProcessMemoryInfo(hProcess, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
+			if (GetProcessMemoryInfo(hProcess.Get(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
 				ImGui::Text("Working Set:");
 				ImGui::SameLine(150);
 				ImGui::Text("%.2f MB", pmc.WorkingSetSize / (1024.0 * 1024.0));
@@ -1397,7 +1251,7 @@ void MainWindow::RenderProcessPropertiesWindow() {
 			ImGui::Spacing();
 
 			FILETIME creationTime, exitTime, kernelTime, userTime;
-			if (GetProcessTimes(hProcess, &creationTime, &exitTime, &kernelTime, &userTime)) {
+			if (GetProcessTimes(hProcess.Get(), &creationTime, &exitTime, &kernelTime, &userTime)) {
 				SYSTEMTIME st;
 				FileTimeToSystemTime(&creationTime, &st);
 				ImGui::Text("Creation Time:");
@@ -1420,7 +1274,7 @@ void MainWindow::RenderProcessPropertiesWindow() {
 			}
 
 			char exePath[MAX_PATH] = { 0 };
-			if (GetModuleFileNameExA(hProcess, nullptr, exePath, MAX_PATH)) {
+			if (GetModuleFileNameExA(hProcess.Get(), nullptr, exePath, MAX_PATH)) {
 				ImGui::Spacing();
 				ImGui::Separator();
 				ImGui::Spacing();
@@ -1434,11 +1288,11 @@ void MainWindow::RenderProcessPropertiesWindow() {
 				ImGui::PopStyleColor();
 			}
 
-			CloseHandle(hProcess);
 		}
 		else {
 			ImGui::Spacing();
 			ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Failed to open process (Access Denied)");
+			Logger::GetInstance().LogWarning("Failed to open process PID " + std::to_string(m_CurrentProcessDetails.ProcessId) + " (Access Denied)");
 		}
 
 		ImGui::Spacing();
@@ -1495,27 +1349,28 @@ void MainWindow::RefreshProcessDetails() {
 void MainWindow::RefreshThreads(DWORD processId) {
 	m_CurrentThreads.clear();
 	
-	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-	if (hSnapshot == INVALID_HANDLE_VALUE) {
+	HandleWrapper hSnapshot(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0));
+	if (!hSnapshot.IsValid()) {
+		Logger::GetInstance().LogError("Failed to create thread snapshot");
 		return;
 	}
 
 	THREADENTRY32 te32 = {};
 	te32.dwSize = sizeof(THREADENTRY32);
 
-	if (Thread32First(hSnapshot, &te32)) {
+	if (Thread32First(hSnapshot.Get(), &te32)) {
 		do {
 			if (te32.th32OwnerProcessID == processId) {
 				ThreadInfo info = {};
 				info.ThreadId = te32.th32ThreadID;
 				info.ProcessId = te32.th32OwnerProcessID;
 				
-				HANDLE hThread = OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME, FALSE, info.ThreadId);
-				if (hThread) {
-					DWORD suspendCount = ::SuspendThread(hThread);
+				HandleWrapper hThread(OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME, FALSE, info.ThreadId));
+				if (hThread.IsValid()) {
+					DWORD suspendCount = ::SuspendThread(hThread.Get());
 					if (suspendCount != (DWORD)-1) {
 						if (suspendCount > 0) {
-							::ResumeThread(hThread);
+							::ResumeThread(hThread.Get());
 							info.State = "Suspended";
 						}
 						else {
@@ -1525,7 +1380,6 @@ void MainWindow::RefreshThreads(DWORD processId) {
 					else {
 						info.State = "Unknown";
 					}
-					CloseHandle(hThread);
 				}
 				else {
 					info.State = "Unknown";
@@ -1533,28 +1387,27 @@ void MainWindow::RefreshThreads(DWORD processId) {
 				
 				m_CurrentThreads.push_back(info);
 			}
-		} while (Thread32Next(hSnapshot, &te32));
+		} while (Thread32Next(hSnapshot.Get(), &te32));
 	}
-
-	CloseHandle(hSnapshot);
 }
 
 void MainWindow::RefreshModules(DWORD processId) {
 	m_CurrentModules.clear();
 	
-	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
-	if (!hProcess) {
+	HandleWrapper hProcess(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId));
+	if (!hProcess.IsValid()) {
+		Logger::GetInstance().LogWarning("Failed to open process PID " + std::to_string(processId) + " for module enumeration");
 		return;
 	}
 
 	HMODULE hMods[1024];
 	DWORD cbNeeded;
-	if (EnumProcessModules(hProcess, hMods, sizeof(hMods), &cbNeeded)) {
+	if (EnumProcessModules(hProcess.Get(), hMods, sizeof(hMods), &cbNeeded)) {
 		for (unsigned int i = 0; i < (cbNeeded / sizeof(HMODULE)); i++) {
 			char szModName[MAX_PATH];
-			if (GetModuleFileNameExA(hProcess, hMods[i], szModName, sizeof(szModName))) {
+			if (GetModuleFileNameExA(hProcess.Get(), hMods[i], szModName, sizeof(szModName))) {
 				MODULEINFO modInfo = {};
-				if (GetModuleInformation(hProcess, hMods[i], &modInfo, sizeof(modInfo))) {
+				if (GetModuleInformation(hProcess.Get(), hMods[i], &modInfo, sizeof(modInfo))) {
 					ModuleInfo info = {};
 					char* fileName = strrchr(szModName, '\\');
 					info.Name = fileName ? fileName + 1 : szModName;
@@ -1567,37 +1420,41 @@ void MainWindow::RefreshModules(DWORD processId) {
 		}
 	}
 
-	CloseHandle(hProcess);
 }
 
 void MainWindow::SuspendThread(DWORD threadId) {
-	HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId);
-	if (hThread) {
-		::SuspendThread(hThread);
-		CloseHandle(hThread);
+	HandleWrapper hThread(OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId));
+	if (hThread.IsValid()) {
+		::SuspendThread(hThread.Get());
 		m_StatusMessage = "Thread suspended";
+		Logger::GetInstance().LogInfo("Suspended thread " + std::to_string(threadId));
+	} else {
+		Logger::GetInstance().LogError("Failed to open thread " + std::to_string(threadId) + " for suspension");
 	}
 }
 
 void MainWindow::ResumeThread(DWORD threadId) {
-	HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId);
-	if (hThread) {
-		::ResumeThread(hThread);
-		CloseHandle(hThread);
+	HandleWrapper hThread(OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId));
+	if (hThread.IsValid()) {
+		::ResumeThread(hThread.Get());
 		m_StatusMessage = "Thread resumed";
+		Logger::GetInstance().LogInfo("Resumed thread " + std::to_string(threadId));
+	} else {
+		Logger::GetInstance().LogError("Failed to open thread " + std::to_string(threadId) + " for resumption");
 	}
 }
 
 void MainWindow::ReadProcessMemory(DWORD processId, LPCVOID address, SIZE_T size) {
-	HANDLE hProcess = OpenProcess(PROCESS_VM_READ, FALSE, processId);
-	if (!hProcess) {
+	HandleWrapper hProcess(OpenProcess(PROCESS_VM_READ, FALSE, processId));
+	if (!hProcess.IsValid()) {
 		m_StatusMessage = "Failed to open process for memory read";
+		Logger::GetInstance().LogError("Failed to open process PID " + std::to_string(processId) + " for memory read");
 		return;
 	}
 
 	std::vector<BYTE> buffer(size);
 	SIZE_T bytesRead = 0;
-	if (::ReadProcessMemory(hProcess, address, buffer.data(), size, &bytesRead)) {
+	if (::ReadProcessMemory(hProcess.Get(), address, buffer.data(), size, &bytesRead)) {
 		std::stringstream ss;
 		ss << "Memory at 0x" << std::hex << (ULONG_PTR)address << " (" << std::dec << bytesRead << " bytes):\n";
 		for (SIZE_T i = 0; i < bytesRead; i++) {
@@ -1606,22 +1463,22 @@ void MainWindow::ReadProcessMemory(DWORD processId, LPCVOID address, SIZE_T size
 			}
 			ss << std::hex << std::setfill('0') << std::setw(2) << (int)buffer[i] << " ";
 		}
-		m_LogMessages.push_back(ss.str());
+		Logger::GetInstance().LogInfo(ss.str());
 		m_StatusMessage = "Memory read successful";
 	}
 	else {
 		m_StatusMessage = "Failed to read memory";
+		Logger::GetInstance().LogError("Failed to read memory from process PID " + std::to_string(processId));
 	}
-
-	CloseHandle(hProcess);
 }
 
 void MainWindow::SearchMemoryStrings(DWORD processId) {
 	m_MemorySearchResults.clear();
 	
-	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
-	if (!hProcess) {
+	HandleWrapper hProcess(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId));
+	if (!hProcess.IsValid()) {
 		m_StatusMessage = "Failed to open process for memory search";
+		Logger::GetInstance().LogError("Failed to open process PID " + std::to_string(processId) + " for memory search");
 		return;
 	}
 
@@ -1629,11 +1486,11 @@ void MainWindow::SearchMemoryStrings(DWORD processId) {
 	LPCVOID address = nullptr;
 	std::string searchStr = m_SearchStringBuffer;
 	
-	while (VirtualQueryEx(hProcess, address, &mbi, sizeof(mbi))) {
+	while (VirtualQueryEx(hProcess.Get(), address, &mbi, sizeof(mbi))) {
 		if (mbi.State == MEM_COMMIT && (mbi.Protect == PAGE_READONLY || mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_EXECUTE_READ || mbi.Protect == PAGE_EXECUTE_READWRITE)) {
 			std::vector<BYTE> buffer(mbi.RegionSize);
 			SIZE_T bytesRead = 0;
-			if (::ReadProcessMemory(hProcess, mbi.BaseAddress, buffer.data(), mbi.RegionSize, &bytesRead)) {
+			if (::ReadProcessMemory(hProcess.Get(), mbi.BaseAddress, buffer.data(), mbi.RegionSize, &bytesRead)) {
 				for (SIZE_T i = 0; i <= bytesRead - searchStr.length(); i++) {
 					if (memcmp(buffer.data() + i, searchStr.c_str(), searchStr.length()) == 0) {
 						std::stringstream ss;
@@ -1652,8 +1509,8 @@ void MainWindow::SearchMemoryStrings(DWORD processId) {
 		}
 	}
 
-	CloseHandle(hProcess);
 	m_StatusMessage = "Found " + std::to_string(m_MemorySearchResults.size()) + " matches";
+	Logger::GetInstance().LogInfo("Memory search found " + std::to_string(m_MemorySearchResults.size()) + " matches in process PID " + std::to_string(processId));
 }
 
 void MainWindow::EnumerateHandles(DWORD processId) {

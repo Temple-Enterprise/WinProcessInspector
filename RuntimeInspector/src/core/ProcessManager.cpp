@@ -21,10 +21,11 @@ std::vector<ProcessInfo> EnumerateAllProcesses() {
 		return processes;
 	}
 
-	if (Process32FirstW(hSnap, &PE32)) {
+		if (Process32FirstW(hSnap, &PE32)) {
 		do {
 			ProcessInfo info;
 			info.ProcessId = PE32.th32ProcessID;
+			info.ParentProcessId = PE32.th32ParentProcessID;
 
 			int size_needed = WideCharToMultiByte(CP_UTF8, 0, PE32.szExeFile, -1, nullptr, 0, nullptr, nullptr);
 			std::string processName(size_needed, 0);

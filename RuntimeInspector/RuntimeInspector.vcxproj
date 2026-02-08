@@ -159,6 +159,8 @@
     <ClCompile Include="src\gui\MainWindow.cpp" />
     <ClCompile Include="src\core\SystemInfo.cpp" />
     <ClCompile Include="src\core\ProcessManager.cpp" />
+    <ClCompile Include="src\core\Logger.cpp" />
+    <ClCompile Include="src\gui\DirectXRenderer.cpp" />
     <ClCompile Include="src\injection\thread_creation\CreateRemoteThreadInjector.cpp" />
     <ClCompile Include="src\injection\thread_creation\NtCreateThreadExInjector.cpp" />
     <ClCompile Include="src\injection\thread_creation\RtlCreateUserThreadInjector.cpp" />
@@ -183,6 +185,10 @@
     <ClInclude Include="src\gui\MainWindow.h" />
     <ClInclude Include="src\core\SystemInfo.h" />
     <ClInclude Include="src\core\ProcessManager.h" />
+    <ClInclude Include="src\core\Config.h" />
+    <ClInclude Include="src\core\Logger.h" />
+    <ClInclude Include="src\core\HandleWrapper.h" />
+    <ClInclude Include="src\gui\DirectXRenderer.h" />
     <ClInclude Include="src\injection\InjectionEngine.h" />
     <ClInclude Include="external\imgui\imgui.h" />
     <ClInclude Include="external\imgui\imconfig.h" />
