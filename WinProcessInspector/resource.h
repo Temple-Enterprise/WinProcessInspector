@@ -1,0 +1,60 @@
+#ifndef RESOURCE_H
+#define RESOURCE_H
+
+// Icon resource IDs (locked per directive)
+#define IDI_APP_ICON 101
+#define IDI_REFRESH 102
+#define IDI_PROPERTIES 103
+#define IDI_SEARCH 104
+
+// Menu IDs
+#define IDM_MAIN_MENU 200
+#define IDM_FILE_REFRESH 201
+#define IDM_FILE_EXPORT 202
+#define IDM_FILE_EXIT 203
+#define IDM_VIEW_AUTOREFRESH 211
+#define IDM_HELP_ABOUT 221
+
+// Context menu IDs
+#define IDM_CONTEXT_PROPERTIES 301
+#define IDM_CONTEXT_TERMINATE 302
+#define IDM_CONTEXT_FILELOCATION 303
+#define IDM_CONTEXT_COPY_PID 304
+#define IDM_CONTEXT_COPY_NAME 305
+#define IDM_CONTEXT_INJECT_DLL 306
+#define IDM_CONTEXT_SUSPEND 307
+#define IDM_CONTEXT_RESUME 308
+
+// Dialog IDs
+#define IDD_PROPERTIES 400
+#define IDC_TAB_CONTROL 401
+#define IDC_GENERAL_TAB 410
+#define IDC_THREADS_TAB 420
+#define IDC_MODULES_TAB 430
+#define IDC_MEMORY_TAB 440
+#define IDC_HANDLES_TAB 450
+#define IDC_SECURITY_TAB 460
+
+// ListView controls
+#define IDC_PROCESS_LIST 500
+#define IDC_THREAD_LIST 510
+#define IDC_MODULE_LIST 520
+#define IDC_MEMORY_LIST 530
+#define IDC_HANDLE_LIST 540
+
+// Search/Filter controls
+#define IDC_SEARCH_FILTER 600
+
+// Toolbar
+#define IDC_TOOLBAR 700
+
+// Menu accelerators
+#define IDA_MAIN_ACCEL 800
+
+// Timer IDs
+#define IDT_REFRESH_TIMER 1000
+
+// View menu items
+#define IDM_VIEW_TOOLBAR 212
+
+#endif // RESOURCE_H
