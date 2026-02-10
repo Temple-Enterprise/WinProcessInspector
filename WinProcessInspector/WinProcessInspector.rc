@@ -15,8 +15,8 @@
 #endif
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION 1,0,0,0
+FILEVERSION     0,1,4,0
+PRODUCTVERSION 0,1,4,0
 FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
 FILEFLAGS      0x0L
 FILEOS         0x40004L
@@ -29,12 +29,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "WinProcessInspector"
             VALUE "FileDescription",   "WinProcessInspector - Windows Process Inspection Tool"
-            VALUE "FileVersion",       "1.0.0.0"
+            VALUE "FileVersion",       "0.1.4.0"
             VALUE "InternalName",      "WinProcessInspector"
             VALUE "LegalCopyright",    ""
             VALUE "OriginalFilename", "WinProcessInspector.exe"
             VALUE "ProductName",       "WinProcessInspector"
-            VALUE "ProductVersion",    "1.0.0.0"
+            VALUE "ProductVersion",    "0.1.4.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -47,4 +47,26 @@ IDI_APP_ICON ICON DISCARDABLE "resources\\icon.ico"
 IDI_REFRESH ICON DISCARDABLE "resources\\refresh.ico"
 IDI_PROPERTIES ICON DISCARDABLE "resources\\properties.ico"
 IDI_SEARCH ICON DISCARDABLE "resources\\search.ico"
+
+IDD_COLUMN_CHOOSER DIALOG 0, 0, 280, 420
+STYLE 0x80C80000
+CAPTION "Select Columns"
+BEGIN
+    LTEXT "Select columns to display:", -1, 10, 10, 260, 10
+    CONTROL "Name", IDC_COLUMN_NAME, "Button", 0x10003, 20, 30, 120, 15
+    CONTROL "PID", IDC_COLUMN_PID, "Button", 0x10003, 20, 50, 120, 15
+    CONTROL "PPID", IDC_COLUMN_PPID, "Button", 0x10003, 20, 70, 120, 15
+    CONTROL "CPU", IDC_COLUMN_CPU, "Button", 0x10003, 20, 90, 120, 15
+    CONTROL "Memory", IDC_COLUMN_MEMORY, "Button", 0x10003, 20, 110, 120, 15
+    CONTROL "Session", IDC_COLUMN_SESSION, "Button", 0x10003, 20, 130, 120, 15
+    CONTROL "Integrity", IDC_COLUMN_INTEGRITY, "Button", 0x10003, 20, 150, 120, 15
+    CONTROL "User", IDC_COLUMN_USER, "Button", 0x10003, 20, 170, 120, 15
+    CONTROL "Architecture", IDC_COLUMN_ARCHITECTURE, "Button", 0x10003, 20, 190, 120, 15
+    CONTROL "Description", IDC_COLUMN_DESCRIPTION, "Button", 0x10003, 20, 210, 120, 15
+    CONTROL "Image Path", IDC_COLUMN_IMAGEPATH, "Button", 0x10003, 20, 230, 120, 15
+    CONTROL "Command Line", IDC_COLUMN_COMMANDLINE, "Button", 0x10003, 20, 250, 120, 15
+    CONTROL "Company", IDC_COLUMN_COMPANY, "Button", 0x10003, 20, 270, 120, 15
+    DEFPUSHBUTTON "OK", 1, 70, 375, 60, 20
+    PUSHBUTTON "Cancel", 2, 150, 375, 60, 20
+END
 

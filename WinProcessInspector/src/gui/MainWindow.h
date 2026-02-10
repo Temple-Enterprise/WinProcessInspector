@@ -32,6 +32,10 @@ namespace GUI {
 
 		bool Initialize();
 		int Run();
+		
+		// Public accessors for column visibility
+		std::vector<bool>& GetColumnVisible() { return m_ColumnVisible; }
+		void UpdateColumnVisibility();
 
 	private:
 		// Window creation and message handling
@@ -78,6 +82,7 @@ namespace GUI {
 		void OnViewSearchBar();
 		void OnViewAutoRefresh();
 		void OnViewColumns();
+		void ShowColumnChooserDialog();
 		void OnHelpAbout();
 		void OnHelpGitHub();
 		void UpdateProcessMenuState();
@@ -150,6 +155,9 @@ namespace GUI {
 		bool m_IsRefreshing;
 		ULONGLONG m_LastRefreshTime;
 		std::wstring m_FilterText;
+		
+		// Column visibility
+		std::vector<bool> m_ColumnVisible;
 		
 		// Icon cache for process icons
 		HIMAGELIST m_hProcessIconList;

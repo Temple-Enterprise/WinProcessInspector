@@ -42,6 +42,8 @@ enum ProcessListColumns {
 	COL_ARCHITECTURE,
 	COL_DESCRIPTION,
 	COL_IMAGEPATH,
+	COL_COMMANDLINE,
+	COL_COMPANY,
 	COL_COUNT
 };
 
@@ -71,7 +73,14 @@ MainWindow::MainWindow(HINSTANCE hInstance)
 	, m_LastCpuUpdateTime(0)
 	, m_hProcessIconList(nullptr)
 	, m_DefaultIconIndex(-1)
+	, m_ColumnVisible(COL_COUNT, true)
 {
+	m_ColumnVisible[COL_PPID] = false;
+	m_ColumnVisible[COL_SESSION] = false;
+	m_ColumnVisible[COL_DESCRIPTION] = false;
+	m_ColumnVisible[COL_IMAGEPATH] = false;
+	m_ColumnVisible[COL_COMMANDLINE] = false;
+	m_ColumnVisible[COL_COMPANY] = false;
 }
 
 MainWindow::~MainWindow() {
@@ -498,72 +507,91 @@ bool MainWindow::CreateProcessListView() {
 	// Name (with icon) - first column
 	lvc.iSubItem = COL_NAME;
 	lvc.pszText = const_cast<LPWSTR>(L"Name");
-	lvc.cx = 250;
+	lvc.cx = 280;
 	ListView_InsertColumn(m_hProcessListView, COL_NAME, &lvc);
 
 	// PID
 	lvc.iSubItem = COL_PID;
 	lvc.pszText = const_cast<LPWSTR>(L"PID");
-	lvc.cx = 80;
+	lvc.cx = 90;
 	ListView_InsertColumn(m_hProcessListView, COL_PID, &lvc);
 
-	// Parent PID
+	// Parent PID (hidden by default)
 	lvc.iSubItem = COL_PPID;
 	lvc.pszText = const_cast<LPWSTR>(L"PPID");
-	lvc.cx = 80;
+	lvc.cx = 90;
 	ListView_InsertColumn(m_hProcessListView, COL_PPID, &lvc);
-
-	// Session
-	lvc.iSubItem = COL_SESSION;
-	lvc.pszText = const_cast<LPWSTR>(L"Session");
-	lvc.cx = 80;
-	ListView_InsertColumn(m_hProcessListView, COL_SESSION, &lvc);
-
-	// Integrity
-	lvc.iSubItem = COL_INTEGRITY;
-	lvc.pszText = const_cast<LPWSTR>(L"Integrity");
-	lvc.cx = 100;
-	ListView_InsertColumn(m_hProcessListView, COL_INTEGRITY, &lvc);
-
-	// User
-	lvc.iSubItem = COL_USER;
-	lvc.pszText = const_cast<LPWSTR>(L"User");
-	lvc.cx = 150;
-	ListView_InsertColumn(m_hProcessListView, COL_USER, &lvc);
-
-	// Architecture
-	lvc.iSubItem = COL_ARCHITECTURE;
-	lvc.pszText = const_cast<LPWSTR>(L"Architecture");
-	lvc.cx = 100;
-	ListView_InsertColumn(m_hProcessListView, COL_ARCHITECTURE, &lvc);
 
 	// CPU Usage
 	lvc.iSubItem = COL_CPU;
 	lvc.pszText = const_cast<LPWSTR>(L"CPU");
-	lvc.cx = 80;
+	lvc.cx = 90;
 	lvc.fmt = LVCFMT_RIGHT;
 	ListView_InsertColumn(m_hProcessListView, COL_CPU, &lvc);
-	lvc.fmt = LVCFMT_LEFT; // Reset for other columns
+	lvc.fmt = LVCFMT_LEFT;
 
 	// Private Memory
 	lvc.iSubItem = COL_MEMORY;
 	lvc.pszText = const_cast<LPWSTR>(L"Memory");
-	lvc.cx = 100;
+	lvc.cx = 120;
 	lvc.fmt = LVCFMT_RIGHT;
 	ListView_InsertColumn(m_hProcessListView, COL_MEMORY, &lvc);
-	lvc.fmt = LVCFMT_LEFT; // Reset for other columns
+	lvc.fmt = LVCFMT_LEFT;
 
-	// Description
+	// User
+	lvc.iSubItem = COL_USER;
+	lvc.pszText = const_cast<LPWSTR>(L"User");
+	lvc.cx = 180;
+	ListView_InsertColumn(m_hProcessListView, COL_USER, &lvc);
+
+	// Integrity
+	lvc.iSubItem = COL_INTEGRITY;
+	lvc.pszText = const_cast<LPWSTR>(L"Integrity");
+	lvc.cx = 120;
+	ListView_InsertColumn(m_hProcessListView, COL_INTEGRITY, &lvc);
+
+	// Architecture
+	lvc.iSubItem = COL_ARCHITECTURE;
+	lvc.pszText = const_cast<LPWSTR>(L"Architecture");
+	lvc.cx = 120;
+	ListView_InsertColumn(m_hProcessListView, COL_ARCHITECTURE, &lvc);
+
+	// Session (hidden by default)
+	lvc.iSubItem = COL_SESSION;
+	lvc.pszText = const_cast<LPWSTR>(L"Session");
+	lvc.cx = 70;
+	ListView_InsertColumn(m_hProcessListView, COL_SESSION, &lvc);
+
+	// Description (hidden by default)
 	lvc.iSubItem = COL_DESCRIPTION;
 	lvc.pszText = const_cast<LPWSTR>(L"Description");
-	lvc.cx = 200;
+	lvc.cx = 180;
 	ListView_InsertColumn(m_hProcessListView, COL_DESCRIPTION, &lvc);
 
-	// Image Path
+	// Image Path (hidden by default)
 	lvc.iSubItem = COL_IMAGEPATH;
 	lvc.pszText = const_cast<LPWSTR>(L"Image Path");
-	lvc.cx = 300;
+	lvc.cx = 250;
 	ListView_InsertColumn(m_hProcessListView, COL_IMAGEPATH, &lvc);
+
+	// Command Line (hidden by default)
+	lvc.iSubItem = COL_COMMANDLINE;
+	lvc.pszText = const_cast<LPWSTR>(L"Command Line");
+	lvc.cx = 300;
+	ListView_InsertColumn(m_hProcessListView, COL_COMMANDLINE, &lvc);
+
+	// Company Name (hidden by default)
+	lvc.iSubItem = COL_COMPANY;
+	lvc.pszText = const_cast<LPWSTR>(L"Company");
+	lvc.cx = 150;
+	ListView_InsertColumn(m_hProcessListView, COL_COMPANY, &lvc);
+
+	// Hide columns that should be hidden by default
+	for (int i = 0; i < COL_COUNT; ++i) {
+		if (!m_ColumnVisible[i]) {
+			ListView_SetColumnWidth(m_hProcessListView, i, 0);
+		}
+	}
 
 	return true;
 }
@@ -1503,6 +1531,12 @@ void MainWindow::UpdateProcessList() {
 		// Image Path
 		std::wstring imagePathStr = imagePath.empty() ? L"N/A" : imagePath;
 		ListView_SetItemText(m_hProcessListView, i, COL_IMAGEPATH, const_cast<LPWSTR>(imagePathStr.c_str()));
+
+		// Command Line (placeholder - would need NtQueryInformationProcess)
+		ListView_SetItemText(m_hProcessListView, i, COL_COMMANDLINE, const_cast<LPWSTR>(L"N/A"));
+
+		// Company Name (placeholder - would need version info)
+		ListView_SetItemText(m_hProcessListView, i, COL_COMPANY, const_cast<LPWSTR>(L"N/A"));
 	}
 }
 
@@ -1653,12 +1687,22 @@ void MainWindow::OnFileExport() {
 		std::wostringstream oss;
 		oss << L"Process list exported successfully to:\n" << filePath;
 		MessageBoxW(m_hWnd, oss.str().c_str(), L"Export Successful", MB_OK | MB_ICONINFORMATION);
-		std::string filePathA(filePath.begin(), filePath.end());
-		Logger::GetInstance().LogInfo("Exported process list to: " + filePathA);
+		int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, filePath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+		if (sizeNeeded > 0) {
+			std::string filePathA(sizeNeeded, 0);
+			WideCharToMultiByte(CP_UTF8, 0, filePath.c_str(), -1, &filePathA[0], sizeNeeded, nullptr, nullptr);
+			filePathA.pop_back();
+			Logger::GetInstance().LogInfo("Exported process list to: " + filePathA);
+		}
 	} else {
 		MessageBoxW(m_hWnd, L"Failed to export process list.", L"Export Failed", MB_OK | MB_ICONERROR);
-		std::string filePathA(filePath.begin(), filePath.end());
-		Logger::GetInstance().LogError("Failed to export process list to: " + filePathA);
+		int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, filePath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+		if (sizeNeeded > 0) {
+			std::string filePathA(sizeNeeded, 0);
+			WideCharToMultiByte(CP_UTF8, 0, filePath.c_str(), -1, &filePathA[0], sizeNeeded, nullptr, nullptr);
+			filePathA.pop_back();
+			Logger::GetInstance().LogError("Failed to export process list to: " + filePathA);
+		}
 	}
 }
 
@@ -1887,7 +1931,114 @@ void MainWindow::OnViewSearchBar() {
 }
 
 void MainWindow::OnViewColumns() {
-	MessageBoxW(m_hWnd, L"Column chooser dialog will be implemented in a future update.", L"Columns", MB_OK | MB_ICONINFORMATION);
+	ShowColumnChooserDialog();
+}
+
+INT_PTR CALLBACK ColumnChooserDialogProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	if (uMsg == WM_INITDIALOG) {
+		MainWindow* pMainWindow = reinterpret_cast<MainWindow*>(lParam);
+		SetWindowLongPtr(hDlg, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pMainWindow));
+		
+		// Map column IDs to column indices
+		struct ColumnCheckbox {
+			int controlId;
+			int columnIndex;
+		};
+		
+		ColumnCheckbox checkboxes[] = {
+			{ IDC_COLUMN_NAME, COL_NAME },
+			{ IDC_COLUMN_PID, COL_PID },
+			{ IDC_COLUMN_PPID, COL_PPID },
+			{ IDC_COLUMN_CPU, COL_CPU },
+			{ IDC_COLUMN_MEMORY, COL_MEMORY },
+			{ IDC_COLUMN_SESSION, COL_SESSION },
+			{ IDC_COLUMN_INTEGRITY, COL_INTEGRITY },
+			{ IDC_COLUMN_USER, COL_USER },
+			{ IDC_COLUMN_ARCHITECTURE, COL_ARCHITECTURE },
+			{ IDC_COLUMN_DESCRIPTION, COL_DESCRIPTION },
+			{ IDC_COLUMN_IMAGEPATH, COL_IMAGEPATH },
+			{ IDC_COLUMN_COMMANDLINE, COL_COMMANDLINE },
+			{ IDC_COLUMN_COMPANY, COL_COMPANY }
+		};
+		
+		std::vector<bool>& columnVisible = pMainWindow->GetColumnVisible();
+		for (size_t i = 0; i < sizeof(checkboxes) / sizeof(checkboxes[0]); ++i) {
+			HWND hCheckbox = GetDlgItem(hDlg, checkboxes[i].controlId);
+			if (hCheckbox) {
+				SendMessage(hCheckbox, BM_SETCHECK, columnVisible[checkboxes[i].columnIndex] ? BST_CHECKED : BST_UNCHECKED, 0);
+			}
+		}
+		
+		return TRUE;
+	}
+	
+	if (uMsg == WM_COMMAND) {
+		if (LOWORD(wParam) == 1) { // IDOK
+			MainWindow* pMainWindow = reinterpret_cast<MainWindow*>(GetWindowLongPtr(hDlg, GWLP_USERDATA));
+			if (pMainWindow) {
+				struct ColumnCheckbox {
+					int controlId;
+					int columnIndex;
+				};
+				
+				ColumnCheckbox checkboxes[] = {
+					{ IDC_COLUMN_NAME, COL_NAME },
+					{ IDC_COLUMN_PID, COL_PID },
+					{ IDC_COLUMN_PPID, COL_PPID },
+					{ IDC_COLUMN_CPU, COL_CPU },
+					{ IDC_COLUMN_MEMORY, COL_MEMORY },
+					{ IDC_COLUMN_SESSION, COL_SESSION },
+					{ IDC_COLUMN_INTEGRITY, COL_INTEGRITY },
+					{ IDC_COLUMN_USER, COL_USER },
+					{ IDC_COLUMN_ARCHITECTURE, COL_ARCHITECTURE },
+					{ IDC_COLUMN_DESCRIPTION, COL_DESCRIPTION },
+					{ IDC_COLUMN_IMAGEPATH, COL_IMAGEPATH },
+					{ IDC_COLUMN_COMMANDLINE, COL_COMMANDLINE },
+					{ IDC_COLUMN_COMPANY, COL_COMPANY }
+				};
+				
+				std::vector<bool>& columnVisible = pMainWindow->GetColumnVisible();
+				for (size_t i = 0; i < sizeof(checkboxes) / sizeof(checkboxes[0]); ++i) {
+					HWND hCheckbox = GetDlgItem(hDlg, checkboxes[i].controlId);
+					if (hCheckbox) {
+						LRESULT checked = SendMessage(hCheckbox, BM_GETCHECK, 0, 0);
+						columnVisible[checkboxes[i].columnIndex] = (checked == BST_CHECKED);
+					}
+				}
+				pMainWindow->UpdateColumnVisibility();
+			}
+			EndDialog(hDlg, 1);
+			return TRUE;
+		} else if (LOWORD(wParam) == 2) { // IDCANCEL
+			EndDialog(hDlg, 2);
+			return TRUE;
+		}
+	}
+	
+	return FALSE;
+}
+
+void MainWindow::ShowColumnChooserDialog() {
+	INT_PTR result = DialogBoxParamW(m_hInstance, MAKEINTRESOURCE(IDD_COLUMN_CHOOSER), m_hWnd, ColumnChooserDialogProc, reinterpret_cast<LPARAM>(this));
+	if (result == -1) {
+		DWORD error = GetLastError();
+		std::wostringstream oss;
+		oss << L"Failed to show column chooser dialog. Error: " << error;
+		MessageBoxW(m_hWnd, oss.str().c_str(), L"Error", MB_OK | MB_ICONERROR);
+		Logger::GetInstance().LogError("Failed to show column chooser dialog. Error: " + std::to_string(error));
+	}
+}
+
+void MainWindow::UpdateColumnVisibility() {
+	for (int i = 0; i < COL_COUNT; ++i) {
+		if (m_ColumnVisible[i]) {
+			if (ListView_GetColumnWidth(m_hProcessListView, i) == 0) {
+				SendMessage(m_hProcessListView, LVM_SETCOLUMNWIDTH, i, LVSCW_AUTOSIZE_USEHEADER);
+			}
+		} else {
+			ListView_SetColumnWidth(m_hProcessListView, i, 0);
+		}
+	}
 }
 
 void MainWindow::OnHelpAbout() {
@@ -2210,8 +2361,13 @@ void MainWindow::InjectDll(DWORD processId) {
 		std::wostringstream oss;
 		oss << L"DLL injected successfully using " << methodUsed << L" method.";
 		MessageBoxW(m_hWnd, oss.str().c_str(), L"Inject DLL", MB_OK | MB_ICONINFORMATION);
-		std::string methodUsedA(methodUsed.begin(), methodUsed.end());
-		Logger::GetInstance().LogInfo("Injected DLL into process PID " + std::to_string(processId) + " using " + methodUsedA);
+		int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, methodUsed.c_str(), -1, nullptr, 0, nullptr, nullptr);
+		if (sizeNeeded > 0) {
+			std::string methodUsedA(sizeNeeded, 0);
+			WideCharToMultiByte(CP_UTF8, 0, methodUsed.c_str(), -1, &methodUsedA[0], sizeNeeded, nullptr, nullptr);
+			methodUsedA.pop_back();
+			Logger::GetInstance().LogInfo("Injected DLL into process PID " + std::to_string(processId) + " using " + methodUsedA);
+		}
 		RefreshProcessList();
 	} else {
 		MessageBoxW(m_hWnd, L"Failed to inject DLL. All injection methods failed.\n\nThe process may be protected or incompatible.", L"Inject DLL", MB_OK | MB_ICONERROR);
