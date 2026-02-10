@@ -109,6 +109,8 @@ namespace GUI {
 		void CalculateCpuUsage();
 		void UpdateMemoryUsage();
 		double GetCpuUsage(DWORD processId) const;
+		void GroupSvchostServices(std::unordered_map<DWORD, std::vector<DWORD>>& processChildren);
+		void GroupAppContainerProcesses(std::unordered_map<DWORD, std::vector<DWORD>>& processChildren);
 
 		HWND m_hWnd;
 		HINSTANCE m_hInstance;

@@ -9,6 +9,8 @@
 #include <commctrl.h>
 #include <shellapi.h>
 #include <commdlg.h>
+#include <winsvc.h>
+#include <sddl.h>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
@@ -21,6 +23,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
+#pragma comment(lib, "advapi32.lib")
 
 using namespace WinProcessInspector::GUI;
 using namespace WinProcessInspector::Core;
@@ -1241,53 +1244,68 @@ int MainWindow::GetProcessIconIndex(const std::wstring& imagePath) {
 }
 
 void MainWindow::BuildProcessHierarchy() {
-	// Build parent-child map from ALL processes (not filtered)
 	m_ProcessChildren.clear();
 	m_ProcessDepth.clear();
-	std::unordered_map<DWORD, const ProcessInfo*> processMap; // PID -> ProcessInfo*
+	std::unordered_map<DWORD, const ProcessInfo*> processMap;
+	std::unordered_set<DWORD> rootProcessSet;
 	std::vector<const ProcessInfo*> rootProcesses;
 	
-	// First pass: build process map and identify roots
 	for (const auto& proc : m_Processes) {
 		processMap[proc.ProcessId] = &proc;
-		
-		if (proc.ParentProcessId == 0 || proc.ParentProcessId == proc.ProcessId) {
-			rootProcesses.push_back(&proc);
-		} else {
-			// Add to parent's children list
-			m_ProcessChildren[proc.ParentProcessId].push_back(proc.ProcessId);
-		}
 	}
 	
-	// Handle orphaned processes (parent doesn't exist)
 	for (const auto& proc : m_Processes) {
-		if (proc.ParentProcessId != 0 && proc.ParentProcessId != proc.ProcessId) {
-			if (processMap.find(proc.ParentProcessId) == processMap.end()) {
-				// Parent doesn't exist - treat as root
+		if (proc.ParentProcessId == 0 || proc.ParentProcessId == proc.ProcessId) {
+			if (rootProcessSet.find(proc.ProcessId) == rootProcessSet.end()) {
+				rootProcessSet.insert(proc.ProcessId);
 				rootProcesses.push_back(&proc);
+			}
+		} else {
+			auto parentIt = processMap.find(proc.ParentProcessId);
+			if (parentIt != processMap.end()) {
+				m_ProcessChildren[proc.ParentProcessId].push_back(proc.ProcessId);
+			} else {
+				if (rootProcessSet.find(proc.ProcessId) == rootProcessSet.end()) {
+					rootProcessSet.insert(proc.ProcessId);
+					rootProcesses.push_back(&proc);
+				}
 			}
 		}
 	}
 	
-	// Build filtered set that respects hierarchy
-	std::unordered_set<DWORD> visibleProcesses; // Processes that should be visible
+	std::unordered_set<DWORD> visibleProcesses;
+	std::unordered_set<DWORD> processedProcesses;
 	
-	// Helper to mark process and all ancestors as visible
 	auto markVisible = [&](DWORD pid) {
 		DWORD currentPid = pid;
-		while (currentPid != 0) {
+		while (currentPid != 0 && processedProcesses.find(currentPid) == processedProcesses.end()) {
 			if (processMap.find(currentPid) != processMap.end()) {
 				visibleProcesses.insert(currentPid);
+				processedProcesses.insert(currentPid);
 				const ProcessInfo* proc = processMap[currentPid];
 				currentPid = proc->ParentProcessId;
-				if (currentPid == proc->ProcessId) break; // Self-parent
+				if (currentPid == proc->ProcessId) break;
 			} else {
 				break;
 			}
 		}
 	};
 	
-	// If filtering, mark matching processes and their ancestors
+	auto markDescendants = [&](DWORD pid) {
+		std::function<void(DWORD)> markChildren = [&](DWORD parentPid) {
+			auto it = m_ProcessChildren.find(parentPid);
+			if (it != m_ProcessChildren.end()) {
+				for (DWORD childPid : it->second) {
+					if (visibleProcesses.find(childPid) == visibleProcesses.end()) {
+						visibleProcesses.insert(childPid);
+						markChildren(childPid);
+					}
+				}
+			}
+		};
+		markChildren(pid);
+	};
+	
 	if (!m_FilterText.empty()) {
 		std::wstring filterLower = m_FilterText;
 		std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::towlower);
@@ -1305,59 +1323,56 @@ void MainWindow::BuildProcessHierarchy() {
 				if (pidStr.str().find(filterLower) != std::wstring::npos) {
 					matches = true;
 				} else {
-					// Check image path (safely, don't crash if process is gone)
-					// Only check if we have access - use a lightweight check
-					HandleWrapper hProcess = m_ProcessManager.OpenProcess(proc.ProcessId, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
-					if (hProcess.IsValid()) {
-						WCHAR imagePath[MAX_PATH] = {};
-						DWORD pathLen = MAX_PATH;
-						if (QueryFullProcessImageNameW(hProcess.Get(), 0, imagePath, &pathLen)) {
-							std::wstring imagePathStr(imagePath);
-							std::transform(imagePathStr.begin(), imagePathStr.end(), imagePathStr.begin(), ::towlower);
-							if (imagePathStr.find(filterLower) != std::wstring::npos) {
-								matches = true;
-							}
+					std::wstring imagePath = GetProcessImagePath(proc.ProcessId);
+					if (!imagePath.empty()) {
+						std::transform(imagePath.begin(), imagePath.end(), imagePath.begin(), ::towlower);
+						if (imagePath.find(filterLower) != std::wstring::npos) {
+							matches = true;
 						}
 					}
-					// If process access fails, just skip image path check (process may have terminated)
 				}
 			}
 			
 			if (matches) {
 				markVisible(proc.ProcessId);
+				markDescendants(proc.ProcessId);
 			}
 		}
 	} else {
-		// No filter - all processes visible
 		for (const auto& proc : m_Processes) {
 			visibleProcesses.insert(proc.ProcessId);
 		}
 	}
 	
-	// Build display list with proper hierarchy
 	m_FilteredProcesses.clear();
+	std::unordered_set<DWORD> addedProcesses;
+	
 	std::function<void(const ProcessInfo*, int)> addProcess = [&](const ProcessInfo* proc, int depth) {
-		// Only add if visible
+		if (!proc) return;
+		
+		if (addedProcesses.find(proc->ProcessId) != addedProcesses.end()) {
+			return;
+		}
+		
 		if (visibleProcesses.find(proc->ProcessId) == visibleProcesses.end()) {
 			return;
 		}
 		
+		addedProcesses.insert(proc->ProcessId);
 		ProcessInfo procCopy = *proc;
 		m_FilteredProcesses.push_back(procCopy);
 		m_ProcessDepth[proc->ProcessId] = depth;
 		
-		// Add children if expanded (roots are always expanded)
 		bool isExpanded = (depth == 0) || m_ExpandedProcesses[proc->ProcessId];
 		if (isExpanded) {
 			auto it = m_ProcessChildren.find(proc->ProcessId);
 			if (it != m_ProcessChildren.end()) {
-				// Sort children by PID for consistent display
 				std::vector<DWORD> sortedChildren = it->second;
 				std::sort(sortedChildren.begin(), sortedChildren.end());
 				
 				for (DWORD childPid : sortedChildren) {
 					auto childIt = processMap.find(childPid);
-					if (childIt != processMap.end()) {
+					if (childIt != processMap.end() && childIt->second != nullptr) {
 						addProcess(childIt->second, depth + 1);
 					}
 				}
@@ -1365,11 +1380,9 @@ void MainWindow::BuildProcessHierarchy() {
 		}
 	};
 	
-	// Sort roots by PID for consistent display
 	std::sort(rootProcesses.begin(), rootProcesses.end(), 
 		[](const ProcessInfo* a, const ProcessInfo* b) { return a->ProcessId < b->ProcessId; });
 	
-	// Add all root processes
 	for (const auto* root : rootProcesses) {
 		addProcess(root, 0);
 	}
@@ -2568,4 +2581,103 @@ void MainWindow::SearchProcessOnline(DWORD processId) {
 	
 	std::wstring query = L"https://www.google.com/search?q=" + encoded + L"+process";
 	ShellExecuteW(nullptr, L"open", query.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void MainWindow::GroupSvchostServices(std::unordered_map<DWORD, std::vector<DWORD>>& processChildren) {
+	SC_HANDLE hSCManager = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ENUMERATE_SERVICE);
+	if (!hSCManager) {
+		return;
+	}
+	
+	DWORD bytesNeeded = 0;
+	DWORD servicesReturned = 0;
+	DWORD resumeHandle = 0;
+	
+	if (EnumServicesStatusExW(hSCManager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, nullptr, 0, &bytesNeeded, &servicesReturned, &resumeHandle, nullptr) || GetLastError() == ERROR_MORE_DATA) {
+		if (bytesNeeded > 0 && bytesNeeded < 100 * 1024 * 1024) {
+			std::vector<BYTE> buffer(bytesNeeded);
+			ENUM_SERVICE_STATUS_PROCESSW* services = reinterpret_cast<ENUM_SERVICE_STATUS_PROCESSW*>(buffer.data());
+			
+			if (EnumServicesStatusExW(hSCManager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, reinterpret_cast<LPBYTE>(services), bytesNeeded, &bytesNeeded, &servicesReturned, &resumeHandle, nullptr)) {
+				for (DWORD i = 0; i < servicesReturned; ++i) {
+					if (services[i].ServiceStatusProcess.dwProcessId != 0) {
+						for (const auto& proc : m_Processes) {
+							std::wstring procName(proc.ProcessName.begin(), proc.ProcessName.end());
+							std::transform(procName.begin(), procName.end(), procName.begin(), ::towlower);
+							
+							if (procName == L"svchost.exe" && proc.ProcessId == services[i].ServiceStatusProcess.dwProcessId) {
+								processChildren[proc.ProcessId].push_back(proc.ProcessId);
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	CloseServiceHandle(hSCManager);
+}
+
+void MainWindow::GroupAppContainerProcesses(std::unordered_map<DWORD, std::vector<DWORD>>& processChildren) {
+	for (const auto& proc : m_Processes) {
+		if (proc.ProcessId == 0) continue;
+		
+		HandleWrapper hProcess = m_ProcessManager.OpenProcess(proc.ProcessId, PROCESS_QUERY_INFORMATION);
+		if (!hProcess.IsValid()) continue;
+		
+		HANDLE hToken = nullptr;
+		if (!OpenProcessToken(hProcess.Get(), TOKEN_QUERY, &hToken)) continue;
+		
+		DWORD length = 0;
+		GetTokenInformation(hToken, TokenAppContainerSid, nullptr, 0, &length);
+		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER && length > 0 && length < 1024) {
+			std::vector<BYTE> buffer(length);
+			PTOKEN_APPCONTAINER_INFORMATION pAppContainer = reinterpret_cast<PTOKEN_APPCONTAINER_INFORMATION>(buffer.data());
+			
+			if (GetTokenInformation(hToken, TokenAppContainerSid, pAppContainer, length, &length)) {
+				if (pAppContainer->TokenAppContainer != nullptr) {
+					LPWSTR sidString = nullptr;
+					if (ConvertSidToStringSidW(pAppContainer->TokenAppContainer, &sidString)) {
+						std::wstring appContainerSid(sidString);
+						LocalFree(sidString);
+						
+						for (const auto& otherProc : m_Processes) {
+							if (otherProc.ProcessId == proc.ProcessId) continue;
+							
+							HandleWrapper hOtherProcess = m_ProcessManager.OpenProcess(otherProc.ProcessId, PROCESS_QUERY_INFORMATION);
+							if (!hOtherProcess.IsValid()) continue;
+							
+							HANDLE hOtherToken = nullptr;
+							if (OpenProcessToken(hOtherProcess.Get(), TOKEN_QUERY, &hOtherToken)) {
+								DWORD otherLength = 0;
+								GetTokenInformation(hOtherToken, TokenAppContainerSid, nullptr, 0, &otherLength);
+								if (GetLastError() == ERROR_INSUFFICIENT_BUFFER && otherLength > 0 && otherLength < 1024) {
+									std::vector<BYTE> otherBuffer(otherLength);
+									PTOKEN_APPCONTAINER_INFORMATION pOtherAppContainer = reinterpret_cast<PTOKEN_APPCONTAINER_INFORMATION>(otherBuffer.data());
+									
+									if (GetTokenInformation(hOtherToken, TokenAppContainerSid, pOtherAppContainer, otherLength, &otherLength)) {
+										if (pOtherAppContainer->TokenAppContainer != nullptr) {
+											LPWSTR otherSidString = nullptr;
+											if (ConvertSidToStringSidW(pOtherAppContainer->TokenAppContainer, &otherSidString)) {
+												std::wstring otherAppContainerSid(otherSidString);
+												LocalFree(otherSidString);
+												
+												if (appContainerSid == otherAppContainerSid && proc.ProcessId < otherProc.ProcessId) {
+													processChildren[proc.ProcessId].push_back(otherProc.ProcessId);
+												}
+											}
+										}
+									}
+								}
+								CloseHandle(hOtherToken);
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		CloseHandle(hToken);
+	}
 }
