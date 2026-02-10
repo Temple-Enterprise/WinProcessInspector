@@ -1,5 +1,3 @@
-# WinProcessInspector
-
 <p align="center">
   <img src="github/images/banner.png" alt="WinProcessInspector Logo">
 </p>
