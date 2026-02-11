@@ -19,7 +19,7 @@ std::vector<ModuleInfo> ModuleManager::EnumerateModules(DWORD processId) const {
 
 	HandleWrapper hProcess(::OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId));
 	if (!hProcess.IsValid()) {
-		return modules; // Access denied or process not found
+		return modules;
 	}
 
 	HMODULE hMods[1024];
@@ -37,23 +37,19 @@ std::vector<ModuleInfo> ModuleManager::EnumerateModules(DWORD processId) const {
 	for (DWORD i = 0; i < moduleCount; ++i) {
 		ModuleInfo info;
 
-		// Get module file path
 		WCHAR modPath[MAX_PATH] = {};
 		if (GetModuleFileNameExW(hProcess.Get(), hMods[i], modPath, MAX_PATH)) {
 			info.FullPath = modPath;
 			info.Name = ExtractFileName(modPath);
 
-			// Get module information
 			MODULEINFO modInfo = {};
 			if (GetModuleInformation(hProcess.Get(), hMods[i], &modInfo, sizeof(modInfo))) {
 				info.BaseAddress = reinterpret_cast<ULONG_PTR>(modInfo.lpBaseOfDll);
 				info.Size = modInfo.SizeOfImage;
 			}
 
-			// Check if file is missing
 			info.IsMissing = IsFileMissing(info.FullPath);
 
-			// Check if module is signed (only if file exists)
 			if (!info.IsMissing) {
 				info.IsSigned = IsModuleSigned(info.FullPath, info.SignatureInfo);
 			}
@@ -98,12 +94,10 @@ bool ModuleManager::IsModuleSigned(const std::wstring& filePath, std::wstring& s
 
 	LONG status = WinVerifyTrust(nullptr, &policyGUID, &trustData);
 
-	// Cleanup
 	trustData.dwStateAction = WTD_STATEACTION_CLOSE;
 	WinVerifyTrust(nullptr, &policyGUID, &trustData);
 
 	if (status == ERROR_SUCCESS) {
-		// Try to get certificate information
 		HCERTSTORE hStore = nullptr;
 		HCRYPTMSG hMsg = nullptr;
 		DWORD dwEncoding = 0;
@@ -127,7 +121,6 @@ bool ModuleManager::IsModuleSigned(const std::wstring& filePath, std::wstring& s
 			DWORD certSize = sizeof(certCount);
 			if (CryptMsgGetParam(hMsg, CMSG_SIGNER_COUNT_PARAM, 0, &certCount, &certSize)) {
 				if (certCount > 0) {
-					// Get signer info
 					DWORD signerInfoSize = 0;
 					CryptMsgGetParam(hMsg, CMSG_SIGNER_INFO_PARAM, 0, nullptr, &signerInfoSize);
 					if (signerInfoSize > 0) {
@@ -162,5 +155,5 @@ std::wstring ModuleManager::ExtractFileName(const std::wstring& fullPath) const 
 	return fullPath;
 }
 
-} // namespace Core
-} // namespace WinProcessInspector
+} 
+} 

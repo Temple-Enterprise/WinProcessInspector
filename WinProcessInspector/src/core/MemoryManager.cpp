@@ -11,13 +11,12 @@ std::vector<MemoryRegionInfo> MemoryManager::EnumerateMemoryRegions(DWORD proces
 
 	HandleWrapper hProcess(::OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId));
 	if (!hProcess.IsValid()) {
-		return regions; // Access denied or process not found
+		return regions; 
 	}
 
 	MEMORY_BASIC_INFORMATION mbi = {};
 	ULONG_PTR address = 0;
 
-	// Enumerate memory regions
 	while (VirtualQueryEx(hProcess.Get(), reinterpret_cast<LPCVOID>(address), &mbi, sizeof(mbi)) == sizeof(mbi)) {
 		MemoryRegionInfo info;
 		info.BaseAddress = reinterpret_cast<ULONG_PTR>(mbi.BaseAddress);
@@ -25,18 +24,13 @@ std::vector<MemoryRegionInfo> MemoryManager::EnumerateMemoryRegions(DWORD proces
 		info.State = mbi.State;
 		info.Protect = mbi.Protect;
 		info.Type = mbi.Type;
-
-		// Convert to human-readable strings
 		info.ProtectionString = ProtectionToString(mbi.Protect);
 		info.StateString = StateToString(mbi.State);
 		info.TypeString = TypeToString(mbi.Type);
 
 		regions.push_back(info);
-
-		// Move to next region
 		address = reinterpret_cast<ULONG_PTR>(mbi.BaseAddress) + mbi.RegionSize;
 
-		// Safety check to prevent infinite loop
 		if (address == 0 || address < reinterpret_cast<ULONG_PTR>(mbi.BaseAddress)) {
 			break;
 		}
@@ -52,7 +46,6 @@ std::wstring MemoryManager::ProtectionToString(DWORD protect) {
 
 	std::wstring result;
 
-	// Base protection types
 	switch (protect & 0xFF) {
 		case PAGE_NOACCESS:
 			result = L"No Access";
@@ -92,7 +85,6 @@ std::wstring MemoryManager::ProtectionToString(DWORD protect) {
 			break;
 	}
 
-	// Add modifiers
 	if (protect & PAGE_GUARD) {
 		result += L" | Guard";
 	}
@@ -140,5 +132,5 @@ void MemoryManager::FormatProtection(DWORD protect, std::wstring& result) {
 	result = ProtectionToString(protect);
 }
 
-} // namespace Core
-} // namespace WinProcessInspector
+}
+}
