@@ -369,11 +369,11 @@ bool MainWindow::CreateMenuBar() {
 		Logger::GetInstance().LogWarning("Failed to create View menu. Error: " + std::to_string(error));
 		return false;
 	}
-	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_TREEVIEW, L"&Tree View");
+	AppendMenuW(hViewMenu, MF_STRING, IDM_VIEW_TREEVIEW, L"&Tree View");
 	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_TOOLBAR, L"&Toolbar");
 	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_SEARCHBAR, L"&Search Bar");
 	AppendMenuW(hViewMenu, MF_SEPARATOR, 0, nullptr);
-	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_AUTOREFRESH, L"&Auto Refresh");
+	AppendMenuW(hViewMenu, MF_STRING, IDM_VIEW_AUTOREFRESH, L"&Auto Refresh");
 	AppendMenuW(hViewMenu, MF_SEPARATOR, 0, nullptr);
 	AppendMenuW(hViewMenu, MF_STRING, IDM_VIEW_NETWORK, L"&Network Connections...");
 	AppendMenuW(hViewMenu, MF_STRING, IDM_VIEW_SYSTEM_INFO, L"&System Information...");
@@ -1108,18 +1108,10 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 		case WM_TIMER:
 			return OnTimer(wParam);
 		case WM_KEYDOWN:
-			if (wParam == VK_F5) {
-				RefreshProcessList();
-				return 0;
-			}
 			if (wParam == VK_ESCAPE && GetFocus() == m_hSearchFilter) {
 				SetWindowTextW(m_hSearchFilter, L"");
 				m_FilterText.clear();
 				UpdateProcessList();
-				return 0;
-			}
-			if (wParam == VK_RETURN && GetFocus() == m_hProcessListView && m_SelectedProcessId) {
-				ShowProcessProperties(m_SelectedProcessId);
 				return 0;
 			}
 			return DefWindowProc(m_hWnd, uMsg, wParam, lParam);
@@ -1942,6 +1934,12 @@ void MainWindow::OnViewTreeView() {
 	HMENU hViewMenu = GetSubMenu(m_hMenu, 2);
 	if (hViewMenu) {
 		CheckMenuItem(hViewMenu, IDM_VIEW_TREEVIEW, m_TreeViewEnabled ? MF_CHECKED : MF_UNCHECKED);
+	}
+	
+	if (!m_TreeViewEnabled) {
+		m_ExpandedProcesses.clear();
+		m_ProcessChildren.clear();
+		m_ProcessDepth.clear();
 	}
 	
 	UpdateProcessList();
