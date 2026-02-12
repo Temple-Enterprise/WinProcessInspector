@@ -2757,7 +2757,7 @@ void MainWindow::SearchProcessOnline(DWORD processId) {
 		}
 	}
 	
-	std::wstring query = L"https://www.google.com/search?q=" + encoded + L"+process";
+	std::wstring query = L"https://duckduckgo.com//search?q=" + encoded;
 	ShellExecuteW(nullptr, L"open", query.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
