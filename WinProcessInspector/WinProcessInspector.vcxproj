@@ -164,6 +164,7 @@
     <ClCompile Include="src\core\MemoryManager.cpp" />
     <ClCompile Include="src\core\HandleManager.cpp" />
     <ClCompile Include="src\core\NetworkManager.cpp" />
+    <ClCompile Include="src\core\ServiceManager.cpp" />
     <ClCompile Include="src\security\SecurityManager.cpp" />
     <ClCompile Include="src\utils\Logger.cpp" />
     <ClCompile Include="src\utils\ErrorHandler.cpp" />
@@ -189,6 +190,7 @@
     <ClInclude Include="src\core\MemoryManager.h" />
     <ClInclude Include="src\core\HandleManager.h" />
     <ClInclude Include="src\core\NetworkManager.h" />
+    <ClInclude Include="src\core\ServiceManager.h" />
     <ClInclude Include="src\core\Config.h" />
     <ClInclude Include="src\core\HandleWrapper.h" />
     <ClInclude Include="src\security\SecurityManager.h" />

@@ -39,6 +39,8 @@ namespace Core {
 		bool IsVirtualized = false;
 		bool IsAppContainer = false;
 		bool IsInJob = false;
+		DWORD PriorityClass = 0;
+		DWORD_PTR AffinityMask = 0;
 	};
 
 	struct ThreadInfo {
@@ -85,6 +87,12 @@ namespace Core {
 		bool IsProcessVirtualized(DWORD processId) const;
 		bool IsProcessAppContainer(DWORD processId) const;
 		bool IsProcessInJob(DWORD processId) const;
+		
+		bool GetProcessPriorityClass(DWORD processId, DWORD& priorityClass) const;
+		bool SetProcessPriorityClass(DWORD processId, DWORD priorityClass) const;
+		bool GetProcessAffinityMask(DWORD processId, DWORD_PTR& processAffinityMask, DWORD_PTR& systemAffinityMask) const;
+		bool SetProcessAffinityMask(DWORD processId, DWORD_PTR affinityMask) const;
+		std::wstring GetPriorityClassString(DWORD priorityClass) const;
 
 	private:
 		std::string GetArchitectureFromHandle(HANDLE hProcess) const;

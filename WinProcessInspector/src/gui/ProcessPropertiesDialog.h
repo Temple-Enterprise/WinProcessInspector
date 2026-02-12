@@ -9,6 +9,7 @@
 #include "../core/ModuleManager.h"
 #include "../core/MemoryManager.h"
 #include "../core/HandleManager.h"
+#include "../core/ServiceManager.h"
 #include "../security/SecurityManager.h"
 
 namespace WinProcessInspector {
@@ -83,6 +84,7 @@ namespace GUI {
 		HWND m_hModuleListView;
 		HWND m_hMemoryListView;
 		HWND m_hHandleListView;
+		HWND m_hServicesListView;
 
 		DWORD m_ProcessId;
 		WinProcessInspector::Core::ProcessInfo m_ProcessInfo;
@@ -91,6 +93,7 @@ namespace GUI {
 		WinProcessInspector::Core::ModuleManager m_ModuleManager;
 		WinProcessInspector::Core::MemoryManager m_MemoryManager;
 		WinProcessInspector::Core::HandleManager m_HandleManager;
+		WinProcessInspector::Core::ServiceManager m_ServiceManager;
 		WinProcessInspector::Security::SecurityManager m_SecurityManager;
 		
 		HFONT m_hBoldFont;

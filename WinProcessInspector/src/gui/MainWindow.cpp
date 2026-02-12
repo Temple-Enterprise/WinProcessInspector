@@ -22,8 +22,10 @@
 #include <psapi.h>
 #include <wintrust.h>
 #include <softpub.h>
+#include <dbghelp.h>
 
 #pragma comment(lib, "wintrust.lib")
+#pragma comment(lib, "dbghelp.lib")
 #pragma comment(lib, "version.lib")
 
 #pragma comment(lib, "shell32.lib")
@@ -356,9 +358,14 @@ bool MainWindow::CreateMenuBar() {
 	AppendMenuW(hProcessMenu, MF_SEPARATOR, 0, nullptr);
 	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_INJECT_DLL, L"Inject &DLL...");
 	AppendMenuW(hProcessMenu, MF_SEPARATOR, 0, nullptr);
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_SET_PRIORITY, L"Set &Priority...");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_SET_AFFINITY, L"Set &Affinity...");
+	AppendMenuW(hProcessMenu, MF_SEPARATOR, 0, nullptr);
 	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_SUSPEND, L"&Suspend");
 	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_RESUME, L"&Resume");
 	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_TERMINATE, L"&Terminate");
+	AppendMenuW(hProcessMenu, MF_SEPARATOR, 0, nullptr);
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_DUMP, L"Create &Dump...");
 
 	HMENU hViewMenu = CreatePopupMenu();
 	if (!hViewMenu) {
@@ -914,6 +921,27 @@ LRESULT MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 				SearchProcessOnline(m_SelectedProcessId);
 			} else {
 				MessageBoxW(m_hWnd, L"Please select a process first.", L"Search Online", MB_OK | MB_ICONINFORMATION);
+			}
+			break;
+		case IDM_PROCESS_SET_PRIORITY:
+			if (m_SelectedProcessId) {
+				SetProcessPriority(m_SelectedProcessId);
+			} else {
+				MessageBoxW(m_hWnd, L"Please select a process first.", L"Set Priority", MB_OK | MB_ICONINFORMATION);
+			}
+			break;
+		case IDM_PROCESS_SET_AFFINITY:
+			if (m_SelectedProcessId) {
+				SetProcessAffinity(m_SelectedProcessId);
+			} else {
+				MessageBoxW(m_hWnd, L"Please select a process first.", L"Set Affinity", MB_OK | MB_ICONINFORMATION);
+			}
+			break;
+		case IDM_PROCESS_DUMP:
+			if (m_SelectedProcessId) {
+				CreateProcessDump(m_SelectedProcessId);
+			} else {
+				MessageBoxW(m_hWnd, L"Please select a process first.", L"Create Dump", MB_OK | MB_ICONINFORMATION);
 			}
 			break;
 		case IDM_VIEW_TREEVIEW:
@@ -1726,7 +1754,7 @@ bool MainWindow::ExportToCSV(const std::wstring& filePath, const std::vector<Win
 	}
 
 	fprintf(file, "\xEF\xBB\xBF");
-	fprintf(file, "Name,PID,Parent PID,CPU%%,Memory,Session,Integrity,User,Architecture,Description,Image Path\n");
+	fprintf(file, "Name,PID,Parent PID,CPU%%,Memory,Session,Integrity,User,Architecture,Priority,Affinity,Description,Image Path\n");
 	auto escapeCSV = [](const std::string& str) -> std::string {
 		if (str.find(",") != std::string::npos || str.find("\"") != std::string::npos || str.find("\n") != std::string::npos) {
 			std::string escaped = "\"";
@@ -1764,7 +1792,11 @@ bool MainWindow::ExportToCSV(const std::wstring& filePath, const std::vector<Win
 				memory = memIt->second;
 			}
 
-			fprintf(file, "%s,%u,%u,%.2f,%llu,%u,%s,%s,%s,%s,%s\n",
+			std::string priorityStr = WideToUtf8(m_ProcessManager.GetPriorityClassString(proc.PriorityClass));
+			std::ostringstream affinityStr;
+			affinityStr << "0x" << std::hex << proc.AffinityMask;
+			
+			fprintf(file, "%s,%u,%u,%.2f,%llu,%u,%s,%s,%s,%s,%s,%s,%s\n",
 				escapeCSV(name).c_str(),
 				proc.ProcessId,
 				proc.ParentProcessId,
@@ -1774,6 +1806,8 @@ bool MainWindow::ExportToCSV(const std::wstring& filePath, const std::vector<Win
 				escapeCSV(integrity).c_str(),
 				escapeCSV(user).c_str(),
 				escapeCSV(arch).c_str(),
+				escapeCSV(priorityStr).c_str(),
+				escapeCSV(affinityStr.str()).c_str(),
 				escapeCSV(description).c_str(),
 				escapeCSV(imagePath).c_str()
 			);
@@ -1843,9 +1877,15 @@ bool MainWindow::ExportToJSON(const std::wstring& filePath, const std::vector<Wi
 			fprintf(file, "      \"cpuUsage\": %.2f,\n", cpuUsage);
 			fprintf(file, "      \"memory\": %llu,\n", static_cast<unsigned long long>(memory));
 			fprintf(file, "      \"sessionId\": %u,\n", proc.SessionId);
+			std::string priorityStr = WideToUtf8(m_ProcessManager.GetPriorityClassString(proc.PriorityClass));
+			std::ostringstream affinityStr;
+			affinityStr << "0x" << std::hex << proc.AffinityMask;
+			
 			fprintf(file, "      \"integrity\": \"%s\",\n", escapeJSON(integrity).c_str());
 			fprintf(file, "      \"user\": \"%s\",\n", escapeJSON(user).c_str());
 			fprintf(file, "      \"architecture\": \"%s\",\n", escapeJSON(arch).c_str());
+			fprintf(file, "      \"priority\": \"%s\",\n", escapeJSON(priorityStr).c_str());
+			fprintf(file, "      \"affinity\": \"%s\",\n", escapeJSON(affinityStr.str()).c_str());
 			fprintf(file, "      \"description\": \"%s\",\n", escapeJSON(description).c_str());
 			fprintf(file, "      \"imagePath\": \"%s\"\n", escapeJSON(imagePath).c_str());
 			fprintf(file, "    }%s\n", (i < processes.size() - 1) ? "," : "");
@@ -1872,8 +1912,8 @@ bool MainWindow::ExportToText(const std::wstring& filePath, const std::vector<Wi
 	SystemTimeToFileTime(&st, &ft);
 	fwprintf(file, L"Generated: %ls\n", FormatTime(ft).c_str());
 	fwprintf(file, L"Total Processes: %zu\n\n", processes.size());
-	fwprintf(file, L"%-30s %8s %8s %8s %12s %8s %15s %-20s %12s %-30s %s\n",
-		L"Name", L"PID", L"PPID", L"CPU%", L"Memory", L"Session", L"Integrity", L"User", L"Architecture", L"Description", L"Image Path");
+	fwprintf(file, L"%-30s %8s %8s %8s %12s %8s %15s %-20s %12s %15s %12s %-30s %s\n",
+		L"Name", L"PID", L"PPID", L"CPU%", L"Memory", L"Session", L"Integrity", L"User", L"Architecture", L"Priority", L"Affinity", L"Description", L"Image Path");
 	fwprintf(file, L"%s\n", std::wstring(150, L'-').c_str());
 
 	for (const auto& proc : processes) {
@@ -1892,7 +1932,11 @@ bool MainWindow::ExportToText(const std::wstring& filePath, const std::vector<Wi
 			memory = memIt->second;
 		}
 
-		fwprintf(file, L"%-30s %8u %8u %7.2f%% %12llu %8u %15s %-20s %12s %-30s %s\n",
+		std::wstring priority = m_ProcessManager.GetPriorityClassString(proc.PriorityClass);
+		std::wostringstream affinityStr;
+		affinityStr << L"0x" << std::hex << proc.AffinityMask;
+		
+		fwprintf(file, L"%-30s %8u %8u %7.2f%% %12llu %8u %15s %-20s %12s %15s %12s %-30s %s\n",
 			name.c_str(),
 			proc.ProcessId,
 			proc.ParentProcessId,
@@ -1902,6 +1946,8 @@ bool MainWindow::ExportToText(const std::wstring& filePath, const std::vector<Wi
 			integrity.c_str(),
 			user.c_str(),
 			arch.c_str(),
+			priority.c_str(),
+			affinityStr.str().c_str(),
 			description.c_str(),
 			imagePath.c_str()
 		);
@@ -2122,9 +2168,12 @@ void MainWindow::UpdateProcessMenuState() {
 	EnableMenuItem(hProcessMenu, IDM_PROCESS_FILE_LOCATION, hasSelection ? MF_ENABLED : MF_GRAYED);
 	EnableMenuItem(hProcessMenu, IDM_PROCESS_SEARCH_ONLINE, hasSelection ? MF_ENABLED : MF_GRAYED);
 	EnableMenuItem(hProcessMenu, IDM_PROCESS_INJECT_DLL, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_SET_PRIORITY, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_SET_AFFINITY, hasSelection ? MF_ENABLED : MF_GRAYED);
 	EnableMenuItem(hProcessMenu, IDM_PROCESS_SUSPEND, hasSelection ? MF_ENABLED : MF_GRAYED);
 	EnableMenuItem(hProcessMenu, IDM_PROCESS_RESUME, hasSelection ? MF_ENABLED : MF_GRAYED);
 	EnableMenuItem(hProcessMenu, IDM_PROCESS_TERMINATE, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_DUMP, hasSelection ? MF_ENABLED : MF_GRAYED);
 }
 
 void MainWindow::ShowProcessProperties(DWORD processId) {
@@ -2406,6 +2455,249 @@ void MainWindow::InjectDll(DWORD processId) {
 	}
 }
 
+void MainWindow::SetProcessPriority(DWORD processId) {
+	std::wstring errorMsg;
+	if (!ValidateProcess(processId, errorMsg)) {
+		MessageBoxW(m_hWnd, errorMsg.c_str(), L"Set Priority", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	DWORD currentPriority = 0;
+	if (!m_ProcessManager.GetProcessPriorityClass(processId, currentPriority)) {
+		MessageBoxW(m_hWnd, L"Failed to get current process priority.", L"Set Priority", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	struct PriorityOption {
+		DWORD value;
+		const wchar_t* name;
+	};
+
+	PriorityOption priorities[] = {
+		{ IDLE_PRIORITY_CLASS, L"Idle" },
+		{ BELOW_NORMAL_PRIORITY_CLASS, L"Below Normal" },
+		{ NORMAL_PRIORITY_CLASS, L"Normal" },
+		{ ABOVE_NORMAL_PRIORITY_CLASS, L"Above Normal" },
+		{ HIGH_PRIORITY_CLASS, L"High" },
+		{ REALTIME_PRIORITY_CLASS, L"Realtime" }
+	};
+
+	std::wostringstream oss;
+	oss << L"Current Priority: " << m_ProcessManager.GetPriorityClassString(currentPriority) << L"\n\n";
+	oss << L"Select new priority class:";
+	
+	int selected = MessageBoxW(m_hWnd, oss.str().c_str(), L"Set Priority", MB_YESNOCANCEL | MB_ICONQUESTION);
+	if (selected == IDCANCEL) return;
+
+	int priorityIndex = -1;
+	for (int i = 0; i < 6; ++i) {
+		if (priorities[i].value == currentPriority) {
+			priorityIndex = i;
+			break;
+		}
+	}
+
+	if (selected == IDYES && priorityIndex < 5) {
+		priorityIndex++;
+	} else if (selected == IDNO && priorityIndex > 0) {
+		priorityIndex--;
+	} else {
+		return;
+	}
+
+	if (!m_ProcessManager.SetProcessPriorityClass(processId, priorities[priorityIndex].value)) {
+		DWORD error = GetLastError();
+		std::wostringstream errMsg;
+		errMsg << L"Failed to set priority. Error: " << error;
+		MessageBoxW(m_hWnd, errMsg.str().c_str(), L"Set Priority", MB_OK | MB_ICONERROR);
+		Logger::GetInstance().LogError("Failed to set priority for process PID " + std::to_string(processId));
+	} else {
+		MessageBoxW(m_hWnd, L"Priority changed successfully.", L"Set Priority", MB_OK | MB_ICONINFORMATION);
+		Logger::GetInstance().LogInfo("Changed priority for process PID " + std::to_string(processId));
+		RefreshProcessList();
+	}
+}
+
+static bool GetInputBox(HWND hParent, const wchar_t* title, const wchar_t* prompt, wchar_t* buffer, size_t bufferSize) {
+	WNDCLASSW wc = {};
+	wc.lpfnWndProc = DefWindowProcW;
+	wc.hInstance = GetModuleHandleW(nullptr);
+	wc.lpszClassName = L"InputBoxClass";
+	wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+	wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+	RegisterClassW(&wc);
+
+	HWND hDlg = CreateWindowExW(WS_EX_DLGMODALFRAME,
+		L"InputBoxClass",
+		title,
+		WS_POPUP | WS_CAPTION | WS_SYSMENU,
+		CW_USEDEFAULT, CW_USEDEFAULT, 400, 150,
+		hParent, nullptr, GetModuleHandleW(nullptr), nullptr);
+
+	if (!hDlg) return false;
+
+	CreateWindowW(L"STATIC", prompt, WS_VISIBLE | WS_CHILD, 10, 10, 370, 50, hDlg, nullptr, GetModuleHandleW(nullptr), nullptr);
+	HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_VISIBLE | WS_CHILD | ES_LEFT, 10, 70, 370, 25, hDlg, nullptr, GetModuleHandleW(nullptr), nullptr);
+	HWND hOk = CreateWindowW(L"BUTTON", L"OK", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON, 200, 105, 75, 25, hDlg, reinterpret_cast<HMENU>(IDOK), GetModuleHandleW(nullptr), nullptr);
+	HWND hCancel = CreateWindowW(L"BUTTON", L"Cancel", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 285, 105, 75, 25, hDlg, reinterpret_cast<HMENU>(IDCANCEL), GetModuleHandleW(nullptr), nullptr);
+
+	ShowWindow(hDlg, SW_SHOW);
+	SetFocus(hEdit);
+
+	MSG msg;
+	bool result = false;
+	while (GetMessage(&msg, nullptr, 0, 0)) {
+		if (msg.message == WM_COMMAND && LOWORD(msg.wParam) == IDOK) {
+			GetWindowTextW(hEdit, buffer, static_cast<int>(bufferSize));
+			result = true;
+			DestroyWindow(hDlg);
+			break;
+		} else if (msg.message == WM_COMMAND && LOWORD(msg.wParam) == IDCANCEL) {
+			DestroyWindow(hDlg);
+			break;
+		}
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	return result;
+}
+
+void MainWindow::SetProcessAffinity(DWORD processId) {
+	std::wstring errorMsg;
+	if (!ValidateProcess(processId, errorMsg)) {
+		MessageBoxW(m_hWnd, errorMsg.c_str(), L"Set Affinity", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	DWORD_PTR processAffinity = 0, systemAffinity = 0;
+	if (!m_ProcessManager.GetProcessAffinityMask(processId, processAffinity, systemAffinity)) {
+		MessageBoxW(m_hWnd, L"Failed to get process affinity mask.", L"Set Affinity", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	SYSTEM_INFO si;
+	GetSystemInfo(&si);
+	DWORD numProcessors = si.dwNumberOfProcessors;
+
+	std::wostringstream oss;
+	oss << L"Available Processors: " << numProcessors << L"\n";
+	oss << L"Current Affinity Mask: 0x" << std::hex << processAffinity << L"\n\n";
+	oss << L"System Affinity Mask: 0x" << systemAffinity << L"\n\n";
+	oss << L"Enter new affinity mask (hex, e.g., 0x3 for CPUs 0-1):";
+
+	wchar_t input[64] = {};
+	if (GetInputBox(m_hWnd, L"Set Affinity", oss.str().c_str(), input, 64) && wcslen(input) > 0) {
+		ULONGLONG newAffinityUL = 0;
+		if (swscanf_s(input, L"%llx", &newAffinityUL) == 1) {
+			DWORD_PTR newAffinity = static_cast<DWORD_PTR>(newAffinityUL);
+			if (newAffinity == 0 || (newAffinity & systemAffinity) != newAffinity) {
+				MessageBoxW(m_hWnd, L"Invalid affinity mask. Must be a subset of system affinity.", L"Set Affinity", MB_OK | MB_ICONERROR);
+				return;
+			}
+
+			if (!m_ProcessManager.SetProcessAffinityMask(processId, newAffinity)) {
+				DWORD error = GetLastError();
+				std::wostringstream errMsg;
+				errMsg << L"Failed to set affinity. Error: " << error;
+				MessageBoxW(m_hWnd, errMsg.str().c_str(), L"Set Affinity", MB_OK | MB_ICONERROR);
+				Logger::GetInstance().LogError("Failed to set affinity for process PID " + std::to_string(processId));
+			} else {
+				MessageBoxW(m_hWnd, L"Affinity changed successfully.", L"Set Affinity", MB_OK | MB_ICONINFORMATION);
+				Logger::GetInstance().LogInfo("Changed affinity for process PID " + std::to_string(processId));
+				RefreshProcessList();
+			}
+		} else {
+			MessageBoxW(m_hWnd, L"Invalid input format. Please enter a hexadecimal value.", L"Set Affinity", MB_OK | MB_ICONERROR);
+		}
+	}
+}
+
+void MainWindow::CreateProcessDump(DWORD processId) {
+	std::wstring errorMsg;
+	if (!ValidateProcess(processId, errorMsg)) {
+		MessageBoxW(m_hWnd, errorMsg.c_str(), L"Create Dump", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	OPENFILENAMEW ofn = {};
+	wchar_t szFile[MAX_PATH] = {};
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = m_hWnd;
+	ofn.lpstrFile = szFile;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.lpstrFilter = L"Dump Files\0*.dmp\0All Files\0*.*\0";
+	ofn.nFilterIndex = 1;
+	ofn.lpstrDefExt = L"dmp";
+	ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+
+	if (!GetSaveFileNameW(&ofn)) {
+		return;
+	}
+
+	HandleWrapper hProcess = m_ProcessManager.OpenProcess(processId, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_DUP_HANDLE);
+	if (!hProcess.IsValid()) {
+		MessageBoxW(m_hWnd, L"Failed to open process for dumping.", L"Create Dump", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	HMODULE hDbgHelp = LoadLibraryW(L"dbghelp.dll");
+	if (!hDbgHelp) {
+		MessageBoxW(m_hWnd, L"Failed to load dbghelp.dll. MiniDumpWriteDump is not available.", L"Create Dump", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	typedef BOOL (WINAPI* pMiniDumpWriteDump)(
+		HANDLE hProcess,
+		DWORD ProcessId,
+		HANDLE hFile,
+		MINIDUMP_TYPE DumpType,
+		PMINIDUMP_EXCEPTION_INFORMATION ExceptionParam,
+		PMINIDUMP_USER_STREAM_INFORMATION UserStreamParam,
+		PMINIDUMP_CALLBACK_INFORMATION CallbackParam
+	);
+
+	pMiniDumpWriteDump MiniDumpWriteDump = reinterpret_cast<pMiniDumpWriteDump>(
+		GetProcAddress(hDbgHelp, "MiniDumpWriteDump"));
+	
+	if (!MiniDumpWriteDump) {
+		FreeLibrary(hDbgHelp);
+		MessageBoxW(m_hWnd, L"MiniDumpWriteDump function not found.", L"Create Dump", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	HANDLE hFile = CreateFileW(szFile, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		FreeLibrary(hDbgHelp);
+		MessageBoxW(m_hWnd, L"Failed to create dump file.", L"Create Dump", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	BOOL success = MiniDumpWriteDump(
+		hProcess.Get(),
+		processId,
+		hFile,
+		MiniDumpWithFullMemory,
+		nullptr,
+		nullptr,
+		nullptr
+	);
+
+	CloseHandle(hFile);
+	FreeLibrary(hDbgHelp);
+
+	if (success) {
+		MessageBoxW(m_hWnd, L"Process dump created successfully.", L"Create Dump", MB_OK | MB_ICONINFORMATION);
+		Logger::GetInstance().LogInfo("Created dump for process PID " + std::to_string(processId));
+	} else {
+		DWORD error = GetLastError();
+		std::wostringstream errMsg;
+		errMsg << L"Failed to create dump. Error: " << error;
+		MessageBoxW(m_hWnd, errMsg.str().c_str(), L"Create Dump", MB_OK | MB_ICONERROR);
+		Logger::GetInstance().LogError("Failed to create dump for process PID " + std::to_string(processId));
+	}
+}
+
 void MainWindow::OpenProcessFileLocation(DWORD processId) {
 	ProcessInfo info = m_ProcessManager.GetProcessDetails(processId);
 	if (info.ProcessId == 0) {
@@ -2468,15 +2760,14 @@ void MainWindow::CopyProcessName(DWORD processId) {
 			EmptyClipboard();
 			HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (nameWStr.length() + 1) * sizeof(WCHAR));
 			if (hMem) {
-			LPWSTR pMem = static_cast<LPWSTR>(GlobalLock(hMem));
-			if (pMem) {
-				wcscpy_s(pMem, nameWStr.length() + 1, nameWStr.c_str());
-				GlobalUnlock(hMem);
-				SetClipboardData(CF_UNICODETEXT, hMem);
-			} else {
-				GlobalFree(hMem);
-			}
-				SetClipboardData(CF_UNICODETEXT, hMem);
+				LPWSTR pMem = static_cast<LPWSTR>(GlobalLock(hMem));
+				if (pMem) {
+					wcscpy_s(pMem, nameWStr.length() + 1, nameWStr.c_str());
+					GlobalUnlock(hMem);
+					SetClipboardData(CF_UNICODETEXT, hMem);
+				} else {
+					GlobalFree(hMem);
+				}
 			}
 			CloseClipboard();
 		}

@@ -116,6 +116,12 @@ std::vector<ProcessInfo> ProcessManager::EnumerateAllProcesses() const {
 			info.IsVirtualized = IsProcessVirtualized(pe32.th32ProcessID);
 			info.IsAppContainer = IsProcessAppContainer(pe32.th32ProcessID);
 			info.IsInJob = IsProcessInJob(pe32.th32ProcessID);
+			
+			GetProcessPriorityClass(pe32.th32ProcessID, info.PriorityClass);
+			DWORD_PTR processAffinity, systemAffinity;
+			if (GetProcessAffinityMask(pe32.th32ProcessID, processAffinity, systemAffinity)) {
+				info.AffinityMask = processAffinity;
+			}
 
 			processes.push_back(info);
 		} while (Process32NextW(hSnap.Get(), &pe32));
@@ -658,6 +664,62 @@ bool ProcessManager::IsProcessInJob(DWORD processId) const {
 	}
 
 	return false;
+}
+
+bool ProcessManager::GetProcessPriorityClass(DWORD processId, DWORD& priorityClass) const {
+	HandleWrapper hProcess = OpenProcess(processId, PROCESS_QUERY_INFORMATION);
+	if (!hProcess.IsValid()) {
+		return false;
+	}
+	
+	priorityClass = GetPriorityClass(hProcess.Get());
+	return priorityClass != 0;
+}
+
+bool ProcessManager::SetProcessPriorityClass(DWORD processId, DWORD priorityClass) const {
+	HandleWrapper hProcess = OpenProcess(processId, PROCESS_SET_INFORMATION);
+	if (!hProcess.IsValid()) {
+		return false;
+	}
+	
+	return SetPriorityClass(hProcess.Get(), priorityClass) != FALSE;
+}
+
+bool ProcessManager::GetProcessAffinityMask(DWORD processId, DWORD_PTR& processAffinityMask, DWORD_PTR& systemAffinityMask) const {
+	HandleWrapper hProcess = OpenProcess(processId, PROCESS_QUERY_INFORMATION);
+	if (!hProcess.IsValid()) {
+		return false;
+	}
+	
+	return ::GetProcessAffinityMask(hProcess.Get(), &processAffinityMask, &systemAffinityMask) != FALSE;
+}
+
+bool ProcessManager::SetProcessAffinityMask(DWORD processId, DWORD_PTR affinityMask) const {
+	HandleWrapper hProcess = OpenProcess(processId, PROCESS_SET_INFORMATION);
+	if (!hProcess.IsValid()) {
+		return false;
+	}
+	
+	return ::SetProcessAffinityMask(hProcess.Get(), affinityMask) != FALSE;
+}
+
+std::wstring ProcessManager::GetPriorityClassString(DWORD priorityClass) const {
+	switch (priorityClass) {
+		case IDLE_PRIORITY_CLASS:
+			return L"Idle";
+		case BELOW_NORMAL_PRIORITY_CLASS:
+			return L"Below Normal";
+		case NORMAL_PRIORITY_CLASS:
+			return L"Normal";
+		case ABOVE_NORMAL_PRIORITY_CLASS:
+			return L"Above Normal";
+		case HIGH_PRIORITY_CLASS:
+			return L"High";
+		case REALTIME_PRIORITY_CLASS:
+			return L"Realtime";
+		default:
+			return L"Unknown";
+	}
 }
 
 } // namespace Core

@@ -70,3 +70,9 @@ WinProcessInspector is built with a clean, layered architecture:
 ### 3. Use the Tool
 - Select a process from the list to inspect its runtime state.
 - Access modules, threads, memory, handles, and security information through the native UI.
+
+---
+
+<p align="center">
+  <img src="github/images/showcase.png" alt="WinProcessInspector Showcase">
+</p>

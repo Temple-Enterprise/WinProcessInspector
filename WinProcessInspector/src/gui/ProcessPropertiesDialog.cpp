@@ -4,6 +4,7 @@
 #include "../core/MemoryManager.h"
 #include "../core/HandleManager.h"
 #include "../core/NetworkManager.h"
+#include "../core/ServiceManager.h"
 #include "../security/SecurityManager.h"
 #include "../utils/Logger.h"
 #include "../utils/CryptoHelper.h"
@@ -37,6 +38,7 @@ ProcessPropertiesDialog::ProcessPropertiesDialog(HINSTANCE hInstance, HWND hPare
 	, m_hModuleListView(nullptr)
 	, m_hMemoryListView(nullptr)
 	, m_hHandleListView(nullptr)
+	, m_hServicesListView(nullptr)
 	, m_ProcessId(0)
 	, m_hBoldFont(nullptr)
 	, m_hNormalFont(nullptr)
@@ -75,6 +77,16 @@ bool ProcessPropertiesDialog::Show(DWORD processId) {
 	m_ProcessInfo = m_ProcessManager.GetProcessDetails(processId);
 	if (m_ProcessInfo.ProcessId == 0) {
 		return false;
+	}
+	
+	DWORD priorityClass = 0;
+	if (m_ProcessManager.GetProcessPriorityClass(processId, priorityClass)) {
+		m_ProcessInfo.PriorityClass = priorityClass;
+	}
+	
+	DWORD_PTR processAffinity = 0, systemAffinity = 0;
+	if (m_ProcessManager.GetProcessAffinityMask(processId, processAffinity, systemAffinity)) {
+		m_ProcessInfo.AffinityMask = processAffinity;
 	}
 
 	std::wostringstream title;
@@ -588,6 +600,7 @@ LRESULT ProcessPropertiesDialog::OnSize() {
 		if (m_hModuleListView) SetWindowPos(m_hModuleListView, nullptr, listRc.left, listRc.top, listRc.right - listRc.left, listRc.bottom - listRc.top, SWP_NOZORDER);
 		if (m_hMemoryListView) SetWindowPos(m_hMemoryListView, nullptr, listRc.left, listRc.top, listRc.right - listRc.left, listRc.bottom - listRc.top, SWP_NOZORDER);
 		if (m_hHandleListView) SetWindowPos(m_hHandleListView, nullptr, listRc.left, listRc.top, listRc.right - listRc.left, listRc.bottom - listRc.top, SWP_NOZORDER);
+		if (m_hServicesListView) SetWindowPos(m_hServicesListView, nullptr, listRc.left, listRc.top, listRc.right - listRc.left, listRc.bottom - listRc.top, SWP_NOZORDER);
 		
 		HWND hOkButton = GetDlgItem(m_hDlg, IDOK);
 		if (hOkButton) {
@@ -1009,6 +1022,46 @@ void ProcessPropertiesDialog::CreateServicesTab() {
 		m_hInstance,
 		nullptr
 	);
+
+	m_hServicesListView = CreateWindowExW(
+		WS_EX_CLIENTEDGE,
+		WC_LISTVIEWW,
+		L"",
+		WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL,
+		rc.left + 10, rc.top + 10, rc.right - rc.left - 20, rc.bottom - rc.top - 20,
+		m_hServicesTab,
+		reinterpret_cast<HMENU>(IDC_SERVICES_LIST),
+		m_hInstance,
+		nullptr
+	);
+
+	if (m_hServicesListView) {
+		ListView_SetExtendedListViewStyle(m_hServicesListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+		
+		LVCOLUMNW lvc = {};
+		lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT;
+		lvc.fmt = LVCFMT_LEFT;
+
+		lvc.pszText = const_cast<LPWSTR>(L"Service Name");
+		lvc.cx = 200;
+		ListView_InsertColumn(m_hServicesListView, 0, &lvc);
+
+		lvc.pszText = const_cast<LPWSTR>(L"Display Name");
+		lvc.cx = 250;
+		ListView_InsertColumn(m_hServicesListView, 1, &lvc);
+
+		lvc.pszText = const_cast<LPWSTR>(L"State");
+		lvc.cx = 120;
+		ListView_InsertColumn(m_hServicesListView, 2, &lvc);
+
+		lvc.pszText = const_cast<LPWSTR>(L"Type");
+		lvc.cx = 150;
+		ListView_InsertColumn(m_hServicesListView, 3, &lvc);
+
+		lvc.pszText = const_cast<LPWSTR>(L"Description");
+		lvc.cx = 300;
+		ListView_InsertColumn(m_hServicesListView, 4, &lvc);
+	}
 }
 
 void ProcessPropertiesDialog::RefreshPerformanceTab() {
@@ -1020,6 +1073,8 @@ void ProcessPropertiesDialog::RefreshPerformanceTab() {
 		DestroyWindow(hChild);
 		hChild = hNext;
 	}
+	
+	m_ProcessInfo = m_ProcessManager.GetProcessDetails(m_ProcessId);
 	
 	int yPos = 20;
 	int leftCol = 20;
@@ -1070,6 +1125,20 @@ void ProcessPropertiesDialog::RefreshPerformanceTab() {
 	
 	AddStaticText(m_hPerformanceTab, L"Bytes Written:", leftCol, yPos, 170, 20);
 	AddStaticText(m_hPerformanceTab, FormatBytes(m_ProcessInfo.WriteTransferCount).c_str(), rightCol, yPos, 200, 20);
+	yPos += lineHeight + 15;
+	
+	AddStaticText(m_hPerformanceTab, L"Process Priority", leftCol, yPos, 300, 20, true);
+	yPos += lineHeight + 5;
+	
+	AddStaticText(m_hPerformanceTab, L"Priority Class:", leftCol, yPos, 170, 20);
+	std::wstring priorityStr = m_ProcessManager.GetPriorityClassString(m_ProcessInfo.PriorityClass);
+	AddStaticText(m_hPerformanceTab, priorityStr.c_str(), rightCol, yPos, 200, 20);
+	yPos += lineHeight;
+	
+	AddStaticText(m_hPerformanceTab, L"Affinity Mask:", leftCol, yPos, 170, 20);
+	std::wostringstream affinityStr;
+	affinityStr << L"0x" << std::hex << m_ProcessInfo.AffinityMask;
+	AddStaticText(m_hPerformanceTab, affinityStr.str().c_str(), rightCol, yPos, 200, 20);
 }
 
 void ProcessPropertiesDialog::RefreshEnvironmentTab() {
@@ -1227,6 +1296,31 @@ void ProcessPropertiesDialog::RefreshNetworkTab() {
 }
 
 void ProcessPropertiesDialog::RefreshServicesTab() {
+	if (!m_hServicesListView) return;
+
+	ListView_DeleteAllItems(m_hServicesListView);
+	auto services = m_ServiceManager.GetServicesForProcess(m_ProcessId);
+
+	for (size_t i = 0; i < services.size(); ++i) {
+		const auto& service = services[i];
+
+		LVITEMW lvi = {};
+		lvi.mask = LVIF_TEXT;
+		lvi.iItem = static_cast<int>(i);
+		lvi.pszText = const_cast<LPWSTR>(service.Name.c_str());
+		ListView_InsertItem(m_hServicesListView, &lvi);
+
+		ListView_SetItemText(m_hServicesListView, i, 1, const_cast<LPWSTR>(service.DisplayName.c_str()));
+		
+		std::wstring stateStr = ServiceManager::GetStateString(service.State);
+		ListView_SetItemText(m_hServicesListView, i, 2, const_cast<LPWSTR>(stateStr.c_str()));
+		
+		std::wstring typeStr = ServiceManager::GetTypeString(service.Type);
+		ListView_SetItemText(m_hServicesListView, i, 3, const_cast<LPWSTR>(typeStr.c_str()));
+		
+		std::wstring descStr = service.Description.empty() ? L"N/A" : service.Description;
+		ListView_SetItemText(m_hServicesListView, i, 4, const_cast<LPWSTR>(descStr.c_str()));
+	}
 }
 
 void ProcessPropertiesDialog::OnSearchOnline() {

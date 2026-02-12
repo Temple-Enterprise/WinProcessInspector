@@ -92,6 +92,9 @@ namespace GUI {
 		void SuspendProcess(DWORD processId);
 		void ResumeProcess(DWORD processId);
 		void InjectDll(DWORD processId);
+		void SetProcessPriority(DWORD processId);
+		void SetProcessAffinity(DWORD processId);
+		void CreateProcessDump(DWORD processId);
 		int SelectInjectionMethod(DWORD processId);
 		void OpenProcessFileLocation(DWORD processId);
 		void CopyProcessId(DWORD processId);
@@ -137,7 +140,7 @@ namespace GUI {
 		std::unordered_map<DWORD, bool> m_ExpandedProcesses;
 		std::unordered_map<DWORD, std::vector<DWORD>> m_ProcessChildren;
 		std::unordered_map<DWORD, ULONGLONG> m_ProcessCpuTime;
-		std::unordered_map<DWORD, DWORD> m_ProcessCpuTimePrev;
+		std::unordered_map<DWORD, ULONGLONG> m_ProcessCpuTimePrev;
 		std::unordered_map<DWORD, double> m_ProcessCpuPercent;
 		std::unordered_map<DWORD, SIZE_T> m_ProcessMemory;
 		ULONGLONG m_LastCpuUpdateTime;
